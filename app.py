@@ -851,91 +851,231 @@ if st.session_state.user_id:
 
     # ========== PAGE SOLUTIONS (avec Gemini) ==========
     elif menu == "Solutions":
-        st.title("🛠 Solutions Recommandées - Analyse & Décision")
-        def calcul_van_roi(investissement, flux_annuel, taux, annees):
-            if investissement <= 0:
-                return 0.0, 0.0
-            van = -investissement
-            for t in range(1, annees + 1):
-                van += flux_annuel / ((1 + taux) ** t)
-            roi = investissement / flux_annuel if flux_annuel > 0 else float('inf')
-            return van, roi
-        if "risk_final" not in st.session_state:
-            st.warning("⚠️ Veuillez d'abord effectuer l'analyse du risque (page 'Analyse').")
-            st.stop()
-        risk = float(st.session_state.get("risk_final", 50.0))
-        P_A = float(st.session_state.get("P_A", 0.2))
-        P_B = float(st.session_state.get("P_B", 0.2))
-        P_C = float(st.session_state.get("P_C", 0.2))
-        consommations = st.session_state.get("consommations", [250, 260, 240, 270, 255])
-        lambda_panne = float(st.session_state.get("lambda_panne", 0.0001))
-        temp = float(st.session_state.get("temperature", 25.0))
-        wind = st.session_state.get("wind", 10.0)
-        secteur = st.session_state.get("secteur_activite", "Industrie")
-        if lambda_panne <= 0:
-            lambda_panne = 0.0001
-        st.header("📈 1. Analyse de la demande de pointe")
-        peak_demand_kw = max(consommations)
-        avg_consumption_kw = np.mean(consommations)
-        st.info(f"💡 **Pic de consommation** : `{peak_demand_kw:.2f} kWh` | **Moyenne** : `{avg_consumption_kw:.2f} kWh`")
-        col1, col2 = st.columns(2)
-        with col1:
-            peak_hours = st.number_input("⏱️ Durée de la pointe (heures)", 1, 8, 3)
-        with col2:
-            peak_coverage = st.slider("🎯 Couverture souhaitée (%)", 0, 100, 75)
-        extra_energy_needed = max(0, (peak_demand_kw - avg_consumption_kw)) * peak_hours
-        target_energy_kwh = extra_energy_needed * (peak_coverage / 100.0)
-        if target_energy_kwh <= 0:
-            st.success("✅ Votre consommation est stable. Aucune capacité supplémentaire nécessaire.")
+    st.title("🛠 Solutions Recommandées - Analyse & Décision")
+
+    # ------------------ Définition de la fonction VAN/ROI ------------------
+    def calcul_van_roi(investissement, flux_annuel, taux, annees):
+        if investissement <= 0:
+            return 0.0, 0.0
+        van = -investissement
+        for t in range(1, annees + 1):
+            van += flux_annuel / ((1 + taux) ** t)
+        roi = investissement / flux_annuel if flux_annuel > 0 else float('inf')
+        return van, roi
+
+    # --- Vérification des données ---
+    if "risk_final" not in st.session_state:
+        st.warning("⚠️ Veuillez d'abord effectuer l'analyse du risque (page 'Analyse').")
+        st.stop()
+
+    # --- Récupération des données ---
+    risk = float(st.session_state.get("risk_final", 50.0))
+    P_A = float(st.session_state.get("P_A", 0.2))
+    P_B = float(st.session_state.get("P_B", 0.2))
+    P_C = float(st.session_state.get("P_C", 0.2))
+    consommations = st.session_state.get("consommations", [250, 260, 240, 270, 255])
+    lambda_panne = float(st.session_state.get("lambda_panne", 0.0001))
+    temp = float(st.session_state.get("temperature", 25.0))
+    wind = st.session_state.get("wind", 10.0)
+    secteur = st.session_state.get("secteur_activite", "Industrie")
+
+    if lambda_panne <= 0:
+        lambda_panne = 0.0001
+
+    # ---------- 1. ANALYSE DE LA DEMANDE DE POINTE ----------
+    st.header("📈 1. Analyse de la demande de pointe")
+    peak_demand_kw = max(consommations)
+    avg_consumption_kw = np.mean(consommations)
+    st.info(f"💡 **Pic de consommation** : `{peak_demand_kw:.2f} kWh` | **Moyenne** : `{avg_consumption_kw:.2f} kWh`")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        peak_hours = st.number_input("⏱️ Durée de la pointe (heures)", 1, 8, 3)
+    with col2:
+        peak_coverage = st.slider("🎯 Couverture souhaitée (%)", 0, 100, 75)
+
+    extra_energy_needed = max(0, (peak_demand_kw - avg_consumption_kw)) * peak_hours
+    target_energy_kwh = extra_energy_needed * (peak_coverage / 100.0)
+
+    if target_energy_kwh <= 0:
+        st.success("✅ Votre consommation est stable. Aucune capacité supplémentaire nécessaire.")
+    else:
+        st.warning(f"⚠️ Énergie cible à fournir pendant la pointe : **{target_energy_kwh:.2f} kWh**")
+
+        # ---------- 2. SIMULATION ÉCONOMIQUE & COMPARAISON ----------
+        st.header("💰 2. Simulation économique : comparaison des solutions")
+        
+        with st.expander("🔧 Paramètres économiques"):
+            prix_kwh = st.number_input("💵 Prix du kWh (DZD)", 5, 30, 8)
+            taux_actualisation = st.slider("📉 Taux d'actualisation (%)", 0, 15, 8) / 100.0
+            duree_projet = st.slider("📅 Durée du projet (années)", 5, 25, 15)
+
+        # ---- Solution Solaire ----
+        with st.expander("☀️ Solution 1 : Solaire photovoltaïque"):
+            irradiation = st.number_input("☀️ Ensoleillement (kWh/m²/jour)", 2.0, 7.0, 5.0, 0.1)
+            panel_power = st.selectbox("Puissance crête par panneau (Wc)", [400, 450, 500, 550], index=2)
+            cout_panneau = st.number_input("💰 Coût par panneau (DZD)", 15000, 60000, 25000)
+            efficiency = st.slider("⚙️ Efficacité système (%)", 50, 95, 75) / 100.0
+            
+            prod_journaliere_panel = (panel_power / 1000) * irradiation * efficiency
+            nb_panneaux = int(np.ceil(target_energy_kwh / prod_journaliere_panel)) if prod_journaliere_panel > 0 else 0
+            invest_solaire = nb_panneaux * cout_panneau
+            prod_annuelle_kwh = nb_panneaux * prod_journaliere_panel * 365
+            econ_annuelle_solaire = prod_annuelle_kwh * prix_kwh
+            VAN_solaire, ROI_solaire = calcul_van_roi(invest_solaire, econ_annuelle_solaire, taux_actualisation, duree_projet)
+
+        # ---- Solution Batterie ----
+        with st.expander("🔋 Solution 2 : Batterie de stockage"):
+            cout_batterie_par_kwh = st.number_input("💰 Coût batterie (DZD/kWh utile)", 30000, 150000, 70000)
+            duree_vie_batterie = st.slider("🔋 Durée de vie batterie (ans)", 5, 15, 10)
+            depth_discharge = st.slider("Profondeur de décharge utile (%)", 50, 95, 80) / 100.0
+            
+            capacite_utile_kwh = target_energy_kwh / depth_discharge
+            invest_batterie = capacite_utile_kwh * cout_batterie_par_kwh
+            econ_annuelle_batterie = target_energy_kwh * prix_kwh * 365
+            VAN_batterie, ROI_batterie = calcul_van_roi(invest_batterie, econ_annuelle_batterie, taux_actualisation, min(duree_projet, duree_vie_batterie))
+
+        # ---- Solution Hybride ----
+        with st.expander("⚡ Solution 3 : Système hybride (Solaire + Batterie)"):
+            part_solaire = st.slider("Part solaire (%)", 0, 100, 60) / 100.0
+            part_batterie = 1 - part_solaire
+            energie_solaire = target_energy_kwh * part_solaire
+            energie_batterie = target_energy_kwh * part_batterie
+            
+            nb_panneaux_hyb = int(np.ceil(energie_solaire / prod_journaliere_panel)) if prod_journaliere_panel>0 else 0
+            invest_solaire_hyb = nb_panneaux_hyb * cout_panneau
+            capacite_batterie_hyb = (energie_batterie / depth_discharge) if depth_discharge>0 else 0
+            invest_batterie_hyb = capacite_batterie_hyb * cout_batterie_par_kwh
+            invest_hybride = invest_solaire_hyb + invest_batterie_hyb
+            econ_annuelle_hybride = (energie_solaire + energie_batterie) * prix_kwh * 365
+            VAN_hybride, ROI_hybride = calcul_van_roi(invest_hybride, econ_annuelle_hybride, taux_actualisation, duree_projet)
+
+        # ---- Tableau comparatif ----
+        st.subheader("📊 Comparaison des solutions")
+        df_comparaison = pd.DataFrame({
+            "Solution": ["Solaire", "Batterie", "Hybride"],
+            "Investissement (DZD)": [invest_solaire, invest_batterie, invest_hybride],
+            "Économie annuelle (DZD)": [econ_annuelle_solaire, econ_annuelle_batterie, econ_annuelle_hybride],
+            "VAN (DZD)": [VAN_solaire, VAN_batterie, VAN_hybride],
+            "ROI (années)": [ROI_solaire, ROI_batterie, ROI_hybride]
+        })
+        for col in ["Investissement (DZD)", "Économie annuelle (DZD)", "VAN (DZD)"]:
+            df_comparaison[col] = df_comparaison[col].round(0).astype(int)
+        df_comparaison["ROI (années)"] = df_comparaison["ROI (années)"].round(1)
+        st.dataframe(df_comparaison, use_container_width=True)
+
+        meilleure = df_comparaison.loc[df_comparaison["VAN (DZD)"].idxmax()]
+        st.success(f"🏆 **Solution la plus rentable** : {meilleure['Solution']} avec une VAN de {meilleure['VAN (DZD)']:,} DZD et un ROI de {meilleure['ROI (années)']} ans.")
+
+        # ---------- 3. SOLUTIONS DYNAMIQUES (TIME-OF-USE) ----------
+        st.header("⏰ 3. Optimisation temporelle (Time-of-Use)")
+        st.markdown("Analyse des heures de pointe et suggestion de décalage des charges.")
+
+        if "consommation_horaire" not in st.session_state:
+            heures = list(range(24))
+            charge = [20 + 15 * np.sin(np.pi * (h - 12) / 12)**2 for h in heures]
+            charge = [c + np.random.normal(0, 2) for c in charge]
+            st.session_state.consommation_horaire = pd.DataFrame({"Heure": heures, "kWh": charge})
+        df_horaire = st.session_state.consommation_horaire
+        
+        fig_heat, ax_heat = plt.subplots(figsize=(10, 3))
+        ax_heat.bar(df_horaire["Heure"], df_horaire["kWh"], color='skyblue')
+        ax_heat.set_xlabel("Heure")
+        ax_heat.set_ylabel("Consommation (kWh)")
+        ax_heat.set_title("Profil de consommation horaire type")
+        st.pyplot(fig_heat)
+
+        seuil_pointe = df_horaire["kWh"].quantile(0.75)
+        heures_pointe = df_horaire[df_horaire["kWh"] > seuil_pointe]["Heure"].tolist()
+        st.warning(f"⏳ Heures de pointe détectées : {heures_pointe}")
+        st.info("💡 **Recommandation dynamique** : Déplacez les processus énergivores vers les heures creuses (ex: 22h-6h). Utilisez un programmateur ou un EMS.")
+
+        # ---------- 4. CHATBOT IA (AVEC CLÉ INTÉGRÉE) ---------- pu être initialisée.")
+        # ---------- 4. CHATBOT IA (Gemini gratuit) ----------
+        st.header("🤖 4. Assistant IA - Posez vos questions")
+
+# مفتاح Gemini المجاني (استبدله بمفتاحك الحقيقي)
+        GEMINI_API_KEY = "AIzaSyA6OEjzOfg5LxOS4Nb9XWF174SZvvOGTTk" # ⬅️ ضع المفتاح هنا
+
+# Gestion de l'état du chat
+        if "chat_open" not in st.session_state:
+           st.session_state.chat_open = False
+        if "messages" not in st.session_state:
+           st.session_state.messages = []
+
+        if st.button("💬 Ouvrir le chat IA", use_container_width=True):
+           st.session_state.chat_open = not st.session_state.chat_open
+
+        if st.session_state.chat_open:
+           with st.container():
+                st.markdown("---")
+                st.markdown("#### 💬 Assistant PowerRisk")
+        
+        # Initialiser Gemini
+                try:
+                    genai.configure(api_key=GEMINI_API_KEY)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    api_ok = True
+                except ImportError:
+                    st.error("❌ Bibliothèque manquante: exécutez 'pip install google-generativeai'")
+                    api_ok = False
+                except Exception as e:
+                    st.error(f"❌ Erreur API: {e}")
+                    api_ok = False
+
+                if api_ok:
+            # Afficher les messages précédents
+                   for msg in st.session_state.messages:
+                       with st.chat_message(msg["role"]):
+                           st.markdown(msg["content"])
+
+            # Zone de saisie
+                   user_input = st.chat_input("Posez une question sur les résultats ou les solutions...")
+                   if user_input:
+                      st.session_state.messages.append({"role": "user", "content": user_input})
+                      with st.chat_message("user"):
+                          st.markdown(user_input)
+
+                # Contexte enrichi
+                      contexte = f"""
+                     Tu es un expert en efficacité énergétique. Voici les données du client :
+                    - Secteur : {secteur}
+                    - Consommation moyenne : {avg_consumption_kw:.1f} kWh
+                    - Pic de consommation : {peak_demand_kw:.1f} kWh
+                    - Taux de panne λ : {lambda_panne:.6f}
+                    - Température : {temp}°C, Vent : {wind} km/h
+                    - Risque global : {risk:.1f}%
+                    - Solutions proposées : Solaire (VAN={VAN_solaire:.0f} DZD, ROI={ROI_solaire:.1f} ans), Batterie (VAN={VAN_batterie:.0f} DZD), Hybride (VAN={VAN_hybride:.0f} DZD)
+                    - Meilleure solution : {meilleure['Solution']}
+                    - Heures de pointe : {heures_pointe}
+                     Réponds en français de manière claire et utile.
+                """
+                
+                      try:
+                           response = model.generate_content(f"{contexte}\n\nQuestion de l'utilisateur: {user_input}")
+                           assistant_reply = response.text
+                      except Exception as e:
+                           assistant_reply = f"❌ Erreur: {e}"
+
+                           st.session_state.messages.append({"role": "assistant", "content": assistant_reply})
+                           with st.chat_message("assistant"):
+                             st.markdown(assistant_reply)
+
+            # Bouton effacer
+                if st.button("🗑️ Effacer la conversation"):
+                    st.session_state.messages = []
+                    st.rerun()
+
+        # ---------- 5. PLAN D'ACTION FINAL ----------
+        st.header("✅ Plan d'action prioritaire")
+        facteurs = {"Surcharge": P_A, "Fiabilité": P_B, "Météo": P_C}
+        dominant = max(facteurs, key=facteurs.get)
+        if dominant == "Surcharge":
+            st.success("Priorité : **Réduction de la pointe** via solaire/batterie + décalage des charges.")
+        elif dominant == "Fiabilité":
+            st.info("Priorité : **Maintenance préventive** et redondance (UPS, groupes électrogènes).")
         else:
-            st.warning(f"⚠️ Énergie cible à fournir pendant la pointe : **{target_energy_kwh:.2f} kWh**")
-            st.header("💰 2. Simulation économique : comparaison des solutions")
-            with st.expander("🔧 Paramètres économiques"):
-                prix_kwh = st.number_input("💵 Prix du kWh (DZD)", 5, 30, 8)
-                taux_actualisation = st.slider("📉 Taux d'actualisation (%)", 0, 15, 8) / 100.0
-                duree_projet = st.slider("📅 Durée du projet (années)", 5, 25, 15)
-            with st.expander("☀️ Solution 1 : Solaire photovoltaïque"):
-                irradiation = st.number_input("☀️ Ensoleillement (kWh/m²/jour)", 2.0, 7.0, 5.0, 0.1)
-                panel_power = st.selectbox("Puissance crête par panneau (Wc)", [400, 450, 500, 550], index=2)
-                cout_panneau = st.number_input("💰 Coût par panneau (DZD)", 15000, 60000, 25000)
-                efficiency = st.slider("⚙️ Efficacité système (%)", 50, 95, 75) / 100.0
-                prod_journaliere_panel = (panel_power / 1000) * irradiation * efficiency
-                nb_panneaux = int(np.ceil(target_energy_kwh / prod_journaliere_panel)) if prod_journaliere_panel > 0 else 0
-                invest_solaire = nb_panneaux * cout_panneau
-                prod_annuelle_kwh = nb_panneaux * prod_journaliere_panel * 365
-                econ_annuelle_solaire = prod_annuelle_kwh * prix_kwh
-                VAN_solaire, ROI_solaire = calcul_van_roi(invest_solaire, econ_annuelle_solaire, taux_actualisation, duree_projet)
-            with st.expander("🔋 Solution 2 : Batterie de stockage"):
-                cout_batterie_par_kwh = st.number_input("💰 Coût batterie (DZD/kWh utile)", 30000, 150000, 70000)
-                duree_vie_batterie = st.slider("🔋 Durée de vie batterie (ans)", 5, 15, 10)
-                depth_discharge = st.slider("Profondeur de décharge utile (%)", 50, 95, 80) / 100.0
-                capacite_utile_kwh = target_energy_kwh / depth_discharge
-                invest_batterie = capacite_utile_kwh * cout_batterie_par_kwh
-                econ_annuelle_batterie = target_energy_kwh * prix_kwh * 365
-                VAN_batterie, ROI_batterie = calcul_van_roi(invest_batterie, econ_annuelle_batterie, taux_actualisation, min(duree_projet, duree_vie_batterie))
-            with st.expander("⚡ Solution 3 : Système hybride (Solaire + Batterie)"):
-                part_solaire = st.slider("Part solaire (%)", 0, 100, 60) / 100.0
-                part_batterie = 1 - part_solaire
-                energie_solaire = target_energy_kwh * part_solaire
-                energie_batterie = target_energy_kwh * part_batterie
-                nb_panneaux_hyb = int(np.ceil(energie_solaire / prod_journaliere_panel)) if prod_journaliere_panel>0 else 0
-                invest_solaire_hyb = nb_panneaux_hyb * cout_panneau
-                capacite_batterie_hyb = (energie_batterie / depth_discharge) if depth_discharge>0 else 0
-                invest_batterie_hyb = capacite_batterie_hyb * cout_batterie_par_kwh
-                invest_hybride = invest_solaire_hyb + invest_batterie_hyb
-                econ_annuelle_hybride = (energie_solaire + energie_batterie) * prix_kwh * 365
-                VAN_hybride, ROI_hybride = calcul_van_roi(invest_hybride, econ_annuelle_hybride, taux_actualisation, duree_projet)
-            st.subheader("📊 Comparaison des solutions")
-            df_comparaison = pd.DataFrame({
-                "Solution": ["Solaire", "Batterie", "Hybride"],
-                "Investissement (DZD)": [invest_solaire, invest_batterie, invest_hybride],
-                "Économie annuelle (DZD)": [econ_annuelle_solaire, econ_annuelle_batterie, econ_annuelle_hybride],
-                "VAN (DZD)": [VAN_solaire, VAN_batterie, VAN_hybride],
-                "ROI (années)": [ROI_solaire, ROI_batterie, ROI_hybride]
-            })
-            for col in ["Investissement (DZD)", "Économie annuelle (DZD)", "VAN (DZD)"]:
-                df_comparaison[col] = df_comparaison[col].round(0).astype(int)
-            df_comparaison["ROI (années)"] = df_comparaison["ROI (années)"].round(1)
-            st.dataframe(df_comparaison, use_container_width=True)
-            meilleure = df_comparaison.loc[df_comparaison["VAN (DZD)"].idxmax()]
-            st.success(f"🏆 **Solution la plus rentable** : {meilleure['Solution']} avec une VAN de {meilleure['VAN (DZD)']:,} DZD et un ROI de {meilleure['ROI 
+            st.warning("Priorité : **Renforcement face au climat** (ventilation, isolation, stockage).")
+
+        st.write("---")
+        st.caption("Analyse générée par PowerRisk – recommandations basées sur les données et l'intelligence artificielle.")
