@@ -12,9 +12,9 @@ import bcrypt
 import random
 import smtplib
 import tempfile
-import psycopg2
 import os
 import pytesseract
+import sqlite3
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
@@ -27,7 +27,6 @@ from scipy.stats import norm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
-from psycopg2.extras import RealDictCursor
 import plotly.express as px
 import plotly.graph_objects as go
 import google.generativeai as genai
@@ -36,100 +35,124 @@ import google.generativeai as genai
 # DATABASE
 # =========================================================
 # DATABASE (Supabase/PostgreSQL)
-# =========================================================
-# معلومات الاتصال (استبدل YOUR_PASSWORD بكلمة السر الحقيقية)
-SUPABASE_HOST = "db.lzhfhjpkjjrxcxlsbsbw.supabase.co"
-SUPABASE_PORT = "5432"
-SUPABASE_DATABASE = "postgres"
-SUPABASE_USER = "postgres"
-SUPABASE_PASSWORD = "Hiba1221+ps" # اكتب كلمة السر هنا
-
 def get_db_connection():
-    """إرجاع اتصال بقاعدة البيانات"""
-    return psycopg2.connect(
-        host=SUPABASE_HOST,
-        port=SUPABASE_PORT,
-        database=SUPABASE_DATABASE,
-        user=SUPABASE_USER,
-        password=SUPABASE_PASSWORD
-    )
+    """Retourne une connexion à la base de données"""
+    return sqlite3.connect("powerrisk.db", check_same_thread=False)
 
 def init_db():
-    """إنشاء الجداول إذا لم تكن موجودة"""
+    """Crée toutes les tables si elles n'existent pas"""
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # ======================================================
+    # TABLE USERS
+    # ======================================================
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             nom_complet TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             mot_de_passe TEXT NOT NULL,
+            is_verified INTEGER DEFAULT 0,
             verification_code TEXT,
             reset_code TEXT,
-            is_verified BOOLEAN DEFAULT FALSE
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
+    # ======================================================
+    # TABLE ENTREPRISES
+    # ======================================================
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS entreprises (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id),
-            nom_entreprise TEXT,
-            secteur_activite TEXT,
-            taille_entreprise TEXT,
-            wilaya TEXT,
-            email_professionnel TEXT,
-            type_installation TEXT,
-            puissance_installee_kva REAL,
-            consommation_moyenne_kwh REAL,
-            nombre_coupures_mois INTEGER,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            nom_entreprise TEXT NOT NULL,
+            secteur_activite TEXT NOT NULL CHECK(secteur_activite IN ('Industrie','Énergie','BTP','Hôpital')),
+            taille_entreprise TEXT NOT NULL CHECK(taille_entreprise IN ('Petite','Moyenne','Grande')),
+            wilaya TEXT NOT NULL,
+            email_professionnel TEXT NOT NULL,
+            type_installation TEXT NOT NULL CHECK(type_installation IN ('BT','MT','HT')),
+            puissance_installee_kva INTEGER NOT NULL,
+            consommation_moyenne_kwh INTEGER NOT NULL,
+            nombre_coupures_mois INTEGER NOT NULL,
             numero_telephone TEXT,
             temperature_moyenne_regionale REAL,
-            objectif_utilisation TEXT,
-            energie_alternative TEXT,
-            etat_equipements TEXT,
+            objectif_utilisation TEXT CHECK(objectif_utilisation IN ('Surveillance interne','Audit énergétique','Prévention des pannes','Assurance')),
+            energie_alternative TEXT CHECK(energie_alternative IN ('Générateur','Panneaux solaires','UPS')),
+            etat_equipements TEXT CHECK(etat_equipements IN ('Ancienne','Moderne')),
             frequence_maintenance TEXT,
-            dernier_incident DATE,
-            type_contrat_assurance TEXT
+            dernier_incident TEXT,
+            type_contrat_assurance TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     ''')
     
+    # ======================================================
+    # TABLE SUBSCRIPTIONS
+    # ======================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan TEXT DEFAULT 'TRIAL',
+            start_date TEXT,
+            end_date TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    
+    # ======================================================
+    # TABLE POINTS
+    # ======================================================
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS points (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id),
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             total_points INTEGER DEFAULT 20,
-            used_points INTEGER DEFAULT 0
+            used_points INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     ''')
     
     conn.commit()
     conn.close()
 
-# استدعاء الدالة لإنشاء الجداول عند بدء التطبيق
+# Initialisation de la base de données au démarrage
 init_db()
 
 # =========================================================
-# دوال المصادقة (بنفس الأسماء لكن باستخدام psycopg2)
+# FONCTIONS D'AUTHENTIFICATION (adaptées à SQLite)
 # =========================================================
 
 def register_user(data):
+    """Inscription d'un nouvel utilisateur"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = %s", (data["email"],))
+    
+    # Vérifier si l'email existe déjà
+    cursor.execute("SELECT id FROM users WHERE email = ?", (data["email"],))
     if cursor.fetchone():
         conn.close()
         return "EMAIL_EXISTS"
+    
+    # Hacher le mot de passe et générer un code de vérification
     hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
     code = str(random.randint(100000, 999999))
+    
+    # Insérer dans users
     cursor.execute('''
         INSERT INTO users (nom_complet, email, mot_de_passe, verification_code, is_verified)
-        VALUES (%s, %s, %s, %s, FALSE)
+        VALUES (?, ?, ?, ?, 0)
     ''', (data["nom"], data["email"], hashed, code))
     conn.commit()
-    cursor.execute("SELECT id FROM users WHERE email = %s", (data["email"],))
-    user_id = cursor.fetchone()[0]
+    user_id = cursor.lastrowid
+    
+    # Insérer dans entreprises
     cursor.execute('''
         INSERT INTO entreprises (
             user_id, nom_entreprise, secteur_activite, taille_entreprise, wilaya,
@@ -137,35 +160,49 @@ def register_user(data):
             consommation_moyenne_kwh, nombre_coupures_mois, numero_telephone,
             temperature_moyenne_regionale, objectif_utilisation, energie_alternative,
             etat_equipements, frequence_maintenance, dernier_incident, type_contrat_assurance
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (user_id, data["nom_entreprise"], data["secteur"], data["taille"], data["wilaya"],
           data["email"], data["type_installation"], data["puissance"], data["consommation"],
           data["coupures"], data["telephone"], data["temperature"], data["objectif"],
           data["energie_alt"], data["etat"], data["maintenance"], data["incident"], data["contrat"]))
     conn.commit()
-    cursor.execute("INSERT INTO points (user_id, total_points, used_points) VALUES (%s, 20, 0)", (user_id,))
+    
+    # Insérer dans points
+    cursor.execute("INSERT INTO points (user_id, total_points, used_points) VALUES (?, 20, 0)", (user_id,))
     conn.commit()
+    
+    # Insérer dans subscriptions (abonnement par défaut)
+    cursor.execute('''
+        INSERT INTO subscriptions (user_id, plan, start_date, status)
+        VALUES (?, 'TRIAL', date('now'), 'active')
+    ''', (user_id,))
+    conn.commit()
+    
     conn.close()
+    
+    # Envoyer l'email de bienvenue avec code
     send_email(data["email"], "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
     return "SUCCESS"
 
 def verify_account(email, code):
+    """Vérifier le compte avec le code reçu par email"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = %s AND verification_code = %s", (email, code))
+    cursor.execute("SELECT id FROM users WHERE email = ? AND verification_code = ?", (email, code))
     user = cursor.fetchone()
     if not user:
         conn.close()
         return None
-    cursor.execute("UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = %s", (user[0],))
+    cursor.execute("UPDATE users SET is_verified = 1, verification_code = NULL WHERE id = ?", (user[0],))
     conn.commit()
     conn.close()
     return user[0]
 
 def login_user(email, password):
+    """Connecter un utilisateur"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, mot_de_passe, is_verified FROM users WHERE email = %s", (email,))
+    cursor.execute("SELECT id, mot_de_passe, is_verified FROM users WHERE email = ?", (email,))
     user = cursor.fetchone()
     conn.close()
     if not user:
@@ -178,15 +215,16 @@ def login_user(email, password):
     return user_id
 
 def forgot_password(email):
+    """Envoyer un code de réinitialisation"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
     user = cursor.fetchone()
     if not user:
         conn.close()
         return False
     code = str(random.randint(100000, 999999))
-    cursor.execute("UPDATE users SET reset_code = %s WHERE id = %s", (code, user[0]))
+    cursor.execute("UPDATE users SET reset_code = ? WHERE id = ?", (code, user[0]))
     conn.commit()
     conn.close()
     body = f"Votre code de réinitialisation PowerRisk est : {code}"
@@ -194,33 +232,36 @@ def forgot_password(email):
     return True
 
 def reset_password(email, code, new_password):
+    """Réinitialiser le mot de passe"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = %s AND reset_code = %s", (email, code))
+    cursor.execute("SELECT id FROM users WHERE email = ? AND reset_code = ?", (email, code))
     user = cursor.fetchone()
     if not user:
         conn.close()
         return False
     hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
-    cursor.execute("UPDATE users SET mot_de_passe = %s, reset_code = NULL WHERE id = %s", (hashed, user[0]))
+    cursor.execute("UPDATE users SET mot_de_passe = ?, reset_code = NULL WHERE id = ?", (hashed, user[0]))
     conn.commit()
     conn.close()
     return True
 
 def get_points(user_id):
+    """Récupérer les points disponibles"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT total_points, used_points FROM points WHERE user_id = %s", (user_id,))
+    cursor.execute("SELECT total_points, used_points FROM points WHERE user_id = ?", (user_id,))
     data = cursor.fetchone()
     conn.close()
     return data[0] - data[1] if data else 0
 
 def use_points(user_id, amount):
+    """Utiliser des points"""
     if get_points(user_id) < amount:
         return False
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE points SET used_points = used_points + %s WHERE user_id = %s", (amount, user_id))
+    cursor.execute("UPDATE points SET used_points = used_points + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     conn.close()
     return True
