@@ -27,6 +27,7 @@ from scipy.stats import norm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
+from psycopg2.extras import RealDictCursor
 import plotly.express as px
 import plotly.graph_objects as go
 import google.generativeai as genai
@@ -34,14 +35,196 @@ import google.generativeai as genai
 # =========================================================
 # DATABASE
 # =========================================================
-conn = psycopg2.connect(
-    host="https://lzhfhpjkjjrxcxlsbsbw.supabase.co",
-    port="5432",
-    password="Hiba1221+ps",
-    database="hibaouafi502-debug's Org"
-)
-cursor = conn.cursor()
+=======================================================
+# DATABASE (Supabase/PostgreSQL)
+# =========================================================
+# معلومات الاتصال (استبدل YOUR_PASSWORD بكلمة السر الحقيقية)
+SUPABASE_HOST = "db.lzhfhjpkjjrxcxlsbsbw.supabase.co"
+SUPABASE_PORT = "5432"
+SUPABASE_DATABASE = "postgres"
+SUPABASE_USER = "postgres"
+SUPABASE_PASSWORD = "YOUR_PASSWORD_HERE" # اكتب كلمة السر هنا
 
+def get_db_connection():
+    """إرجاع اتصال بقاعدة البيانات"""
+    return psycopg2.connect(
+        host=SUPABASE_HOST,
+        port=SUPABASE_PORT,
+        database=SUPABASE_DATABASE,
+        user=SUPABASE_USER,
+        password=SUPABASE_PASSWORD
+    )
+
+def init_db():
+    """إنشاء الجداول إذا لم تكن موجودة"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            nom_complet TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            mot_de_passe TEXT NOT NULL,
+            verification_code TEXT,
+            reset_code TEXT,
+            is_verified BOOLEAN DEFAULT FALSE
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS entreprises (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            nom_entreprise TEXT,
+            secteur_activite TEXT,
+            taille_entreprise TEXT,
+            wilaya TEXT,
+            email_professionnel TEXT,
+            type_installation TEXT,
+            puissance_installee_kva REAL,
+            consommation_moyenne_kwh REAL,
+            nombre_coupures_mois INTEGER,
+            numero_telephone TEXT,
+            temperature_moyenne_regionale REAL,
+            objectif_utilisation TEXT,
+            energie_alternative TEXT,
+            etat_equipements TEXT,
+            frequence_maintenance TEXT,
+            dernier_incident DATE,
+            type_contrat_assurance TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS points (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            total_points INTEGER DEFAULT 20,
+            used_points INTEGER DEFAULT 0
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+# استدعاء الدالة لإنشاء الجداول عند بدء التطبيق
+init_db()
+
+# =========================================================
+# دوال المصادقة (بنفس الأسماء لكن باستخدام psycopg2)
+# =========================================================
+
+def register_user(data):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = %s", (data["email"],))
+    if cursor.fetchone():
+        conn.close()
+        return "EMAIL_EXISTS"
+    hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
+    code = str(random.randint(100000, 999999))
+    cursor.execute('''
+        INSERT INTO users (nom_complet, email, mot_de_passe, verification_code, is_verified)
+        VALUES (%s, %s, %s, %s, FALSE)
+    ''', (data["nom"], data["email"], hashed, code))
+    conn.commit()
+    cursor.execute("SELECT id FROM users WHERE email = %s", (data["email"],))
+    user_id = cursor.fetchone()[0]
+    cursor.execute('''
+        INSERT INTO entreprises (
+            user_id, nom_entreprise, secteur_activite, taille_entreprise, wilaya,
+            email_professionnel, type_installation, puissance_installee_kva,
+            consommation_moyenne_kwh, nombre_coupures_mois, numero_telephone,
+            temperature_moyenne_regionale, objectif_utilisation, energie_alternative,
+            etat_equipements, frequence_maintenance, dernier_incident, type_contrat_assurance
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ''', (user_id, data["nom_entreprise"], data["secteur"], data["taille"], data["wilaya"],
+          data["email"], data["type_installation"], data["puissance"], data["consommation"],
+          data["coupures"], data["telephone"], data["temperature"], data["objectif"],
+          data["energie_alt"], data["etat"], data["maintenance"], data["incident"], data["contrat"]))
+    conn.commit()
+    cursor.execute("INSERT INTO points (user_id, total_points, used_points) VALUES (%s, 20, 0)", (user_id,))
+    conn.commit()
+    conn.close()
+    send_email(data["email"], "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
+    return "SUCCESS"
+
+def verify_account(email, code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = %s AND verification_code = %s", (email, code))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return None
+    cursor.execute("UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = %s", (user[0],))
+    conn.commit()
+    conn.close()
+    return user[0]
+
+def login_user(email, password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, mot_de_passe, is_verified FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    conn.close()
+    if not user:
+        return None
+    user_id, hashed, verified = user
+    if not verified:
+        return "NOT_VERIFIED"
+    if not bcrypt.checkpw(password.encode(), hashed.encode()):
+        return None
+    return user_id
+
+def forgot_password(email):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return False
+    code = str(random.randint(100000, 999999))
+    cursor.execute("UPDATE users SET reset_code = %s WHERE id = %s", (code, user[0]))
+    conn.commit()
+    conn.close()
+    body = f"Votre code de réinitialisation PowerRisk est : {code}"
+    send_email(email, "Réinitialisation mot de passe PowerRisk", body, is_welcome=False)
+    return True
+
+def reset_password(email, code, new_password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = %s AND reset_code = %s", (email, code))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return False
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    cursor.execute("UPDATE users SET mot_de_passe = %s, reset_code = NULL WHERE id = %s", (hashed, user[0]))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_points(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT total_points, used_points FROM points WHERE user_id = %s", (user_id,))
+    data = cursor.fetchone()
+    conn.close()
+    return data[0] - data[1] if data else 0
+
+def use_points(user_id, amount):
+    if get_points(user_id) < amount:
+        return False
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE points SET used_points = used_points + %s WHERE user_id = %s", (amount, user_id))
+    conn.commit()
+    conn.close()
+    return True
 # =========================================================
 # EMAIL (avec message de bienvenue)
 # =========================================================
