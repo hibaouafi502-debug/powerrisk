@@ -6,7 +6,7 @@ plotly
 scipy
 statsmodels
 scikit-learn
-mysql-connector-python
+psycopg2-binary
 bcrypt
 pdfplumber
 reportlab
