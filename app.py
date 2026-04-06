@@ -14,7 +14,6 @@ import random
 import smtplib
 import tempfile
 import os
-import openai
 import pytesseract
 from openai import OpenAI
 from statsmodels.tsa.arima.model import ARIMA
