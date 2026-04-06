@@ -42,7 +42,7 @@ SUPABASE_HOST = "db.lzhfhjpkjjrxcxlsbsbw.supabase.co"
 SUPABASE_PORT = "5432"
 SUPABASE_DATABASE = "postgres"
 SUPABASE_USER = "postgres"
-SUPABASE_PASSWORD = "YOUR_PASSWORD_HERE" # اكتب كلمة السر هنا
+SUPABASE_PASSWORD = "Hiba1221+ps" # اكتب كلمة السر هنا
 
 def get_db_connection():
     """إرجاع اتصال بقاعدة البيانات"""
