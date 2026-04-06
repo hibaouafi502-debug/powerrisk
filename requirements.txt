@@ -10,7 +10,6 @@ mysql-connector-python
 bcrypt
 pdfplumber
 reportlab
-openpyxl
 google-generativeai
 pytesseract
 pillow
