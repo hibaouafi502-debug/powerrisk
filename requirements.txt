@@ -6,11 +6,6 @@ plotly
 scipy
 statsmodels
 scikit-learn
-psycopg2-binary
-bcrypt
 pdfplumber
 reportlab
-google-generativeai
-pytesseract
-pillow
-streamlit-js-eval
+bcrypt
