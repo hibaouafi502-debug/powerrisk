@@ -8,11 +8,11 @@ import pdfplumber
 import re
 import requests
 import matplotlib.pyplot as plt
-import mysql.connector
 import bcrypt
 import random
 import smtplib
 import tempfile
+import psycopg2
 import os
 import pytesseract
 from statsmodels.tsa.arima.model import ARIMA
@@ -34,11 +34,11 @@ import google.generativeai as genai
 # =========================================================
 # DATABASE
 # =========================================================
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Hiba1221+",
-    database="powerrisk"
+conn = psycopg2.connect(
+    host="https://lzhfhpjkjjrxcxlsbsbw.supabase.co",
+    port="5432",
+    password="Hiba1221+ps",
+    database="hibaouafi502-debug's Org"
 )
 cursor = conn.cursor()
 
