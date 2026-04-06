@@ -15,7 +15,6 @@ import smtplib
 import tempfile
 import os
 import pytesseract
-from openai import OpenAI
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
