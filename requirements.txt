@@ -1,0 +1,17 @@
+streamlit
+pandas
+numpy
+matplotlib
+plotly
+scipy
+statsmodels
+scikit-learn
+mysql-connector-python
+bcrypt
+pdfplumber
+reportlab
+openpyxl
+google-generativeai
+pytesseract
+pillow
+streamlit-js-eval
