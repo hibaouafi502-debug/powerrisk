@@ -1,5 +1,6 @@
 streamlit
 streamlit-js-eval
+google-generativeai
 pandas
 numpy
 matplotlib
