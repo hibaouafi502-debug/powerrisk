@@ -1,6 +1,4 @@
 streamlit
-streamlit-js-eval
-google-generativeai
 pandas
 numpy
 matplotlib
@@ -8,6 +6,11 @@ plotly
 scipy
 statsmodels
 scikit-learn
+bcrypt
 pdfplumber
 reportlab
-bcrypt
+google-generativeai
+pytesseract
+pillow
+streamlit-js-eval
+pymongo
