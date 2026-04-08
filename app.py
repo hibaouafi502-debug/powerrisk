@@ -36,7 +36,7 @@ from bson.objectid import ObjectId
 from datetime import datetime
 
 # رابط الاتصال الخاص بك (مع كلمة السر)
-MONGO_URI = "mongodb+srv://<powerrisk>:<powerrisk22ps>@cluster0.rkxgkti.mongodb.net/"
+MONGO_URI = "mongodb+srv://powerrisk:<powerrisk22ps>@cluster0.rkxgkti.mongodb.net/"
 
 # الاتصال بقاعدة البيانات
 client = MongoClient(MONGO_URI)
