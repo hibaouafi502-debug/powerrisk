@@ -13,7 +13,6 @@ import random
 import smtplib
 import tempfile
 import os
-import sqlite3
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
@@ -30,193 +29,139 @@ import plotly.graph_objects as go
 import google.generativeai as genai
 
 # =========================================================
-# DATABASE SQLITE
+# DATABASE (MongoDB Atlas) - نسخه جاهزة
 # =========================================================
-def get_db_connection():
-    return sqlite3.connect("powerrisk.db", check_same_thread=False)
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from datetime import datetime
 
-def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom_complet TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            mot_de_passe TEXT NOT NULL,
-            is_verified INTEGER DEFAULT 0,
-            verification_code TEXT,
-            reset_code TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS entreprises (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            nom_entreprise TEXT NOT NULL,
-            secteur_activite TEXT NOT NULL,
-            taille_entreprise TEXT NOT NULL,
-            wilaya TEXT NOT NULL,
-            email_professionnel TEXT NOT NULL,
-            type_installation TEXT NOT NULL,
-            puissance_installee_kva INTEGER NOT NULL,
-            consommation_moyenne_kwh INTEGER NOT NULL,
-            nombre_coupures_mois INTEGER NOT NULL,
-            numero_telephone TEXT,
-            temperature_moyenne_regionale REAL,
-            objectif_utilisation TEXT,
-            energie_alternative TEXT,
-            etat_equipements TEXT,
-            frequence_maintenance TEXT,
-            dernier_incident TEXT,
-            type_contrat_assurance TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            plan TEXT DEFAULT 'TRIAL',
-            start_date TEXT,
-            end_date TEXT,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS points (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            total_points INTEGER DEFAULT 20,
-            used_points INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# رابط الاتصال الخاص بك (مع كلمة السر)
+MONGO_URI = "mongodb+srv://hibaouafi502_db_user:ISlu1SNe7bxC5sqq@cluster0.rkxgkti.mongodb.net/?retryWrites=true&w=majority"
 
-init_db()
+# الاتصال بقاعدة البيانات
+client = MongoClient(MONGO_URI)
+db = client["powerrisk"] # اسم قاعدة البيانات
+
+# المجموعات (جداول)
+users_col = db["users"]
+entreprises_col = db["entreprises"]
+points_col = db["points"]
+subscriptions_col = db["subscriptions"]
 
 # =========================================================
-# FONCTIONS D'AUTHENTIFICATION (SQLite)
+# دوال المصادقة (MongoDB)
 # =========================================================
+
 def register_user(data):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ?", (data["email"],))
-    if cursor.fetchone():
-        conn.close()
+    if users_col.find_one({"email": data["email"]}):
         return "EMAIL_EXISTS"
+    
     hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
     code = str(random.randint(100000, 999999))
-    cursor.execute('''
-        INSERT INTO users (nom_complet, email, mot_de_passe, verification_code, is_verified)
-        VALUES (?, ?, ?, ?, 0)
-    ''', (data["nom"], data["email"], hashed, code))
-    conn.commit()
-    user_id = cursor.lastrowid
-    cursor.execute('''
-        INSERT INTO entreprises (
-            user_id, nom_entreprise, secteur_activite, taille_entreprise, wilaya,
-            email_professionnel, type_installation, puissance_installee_kva,
-            consommation_moyenne_kwh, nombre_coupures_mois, numero_telephone,
-            temperature_moyenne_regionale, objectif_utilisation, energie_alternative,
-            etat_equipements, frequence_maintenance, dernier_incident, type_contrat_assurance
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (user_id, data["nom_entreprise"], data["secteur"], data["taille"], data["wilaya"],
-          data["email"], data["type_installation"], data["puissance"], data["consommation"],
-          data["coupures"], data["telephone"], data["temperature"], data["objectif"],
-          data["energie_alt"], data["etat"], data["maintenance"], data["incident"], data["contrat"]))
-    conn.commit()
-    cursor.execute("INSERT INTO points (user_id, total_points, used_points) VALUES (?, 20, 0)", (user_id,))
-    conn.commit()
+    
+    user = {
+        "nom_complet": data["nom"],
+        "email": data["email"],
+        "mot_de_passe": hashed,
+        "verification_code": code,
+        "is_verified": 0,
+        "reset_code": None,
+        "created_at": datetime.now()
+    }
+    user_id = users_col.insert_one(user).inserted_id
+    
+    entreprise = {
+        "user_id": user_id,
+        "nom_entreprise": data["nom_entreprise"],
+        "secteur_activite": data["secteur"],
+        "taille_entreprise": data["taille"],
+        "wilaya": data["wilaya"],
+        "email_professionnel": data["email"],
+        "type_installation": data["type_installation"],
+        "puissance_installee_kva": data["puissance"],
+        "consommation_moyenne_kwh": data["consommation"],
+        "nombre_coupures_mois": data["coupures"],
+        "numero_telephone": data["telephone"],
+        "temperature_moyenne_regionale": data["temperature"],
+        "objectif_utilisation": data["objectif"],
+        "energie_alternative": data["energie_alt"],
+        "etat_equipements": data["etat"],
+        "frequence_maintenance": data["maintenance"],
+        "dernier_incident": str(data["incident"]),
+        "type_contrat_assurance": data["contrat"],
+        "created_at": datetime.now()
+    }
+    entreprises_col.insert_one(entreprise)
+    
+    points = {
+        "user_id": user_id,
+        "total_points": 20,
+        "used_points": 0,
+        "created_at": datetime.now()
+    }
+    points_col.insert_one(points)
+    
     from datetime import date
-    cursor.execute("INSERT INTO subscriptions (user_id, plan, start_date, status) VALUES (?, 'TRIAL', ?, 'active')", (user_id, str(date.today())))
-    conn.commit()
-    conn.close()
+    subscription = {
+        "user_id": user_id,
+        "plan": "TRIAL",
+        "start_date": str(date.today()),
+        "end_date": None,
+        "status": "active",
+        "created_at": datetime.now()
+    }
+    subscriptions_col.insert_one(subscription)
+    
     send_email(data["email"], "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
     return "SUCCESS"
 
 def verify_account(email, code):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ? AND verification_code = ?", (email, code))
-    user = cursor.fetchone()
+    user = users_col.find_one({"email": email, "verification_code": code})
     if not user:
-        conn.close()
         return None
-    cursor.execute("UPDATE users SET is_verified = 1, verification_code = NULL WHERE id = ?", (user[0],))
-    conn.commit()
-    conn.close()
-    return user[0]
+    users_col.update_one({"_id": user["_id"]}, {"$set": {"is_verified": 1, "verification_code": None}})
+    return str(user["_id"])
 
 def login_user(email, password):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, mot_de_passe, is_verified FROM users WHERE email = ?", (email,))
-    user = cursor.fetchone()
-    conn.close()
+    user = users_col.find_one({"email": email})
     if not user:
         return None
-    user_id, hashed, verified = user
-    if not verified:
+    if not user.get("is_verified"):
         return "NOT_VERIFIED"
-    if not bcrypt.checkpw(password.encode(), hashed.encode()):
+    if not bcrypt.checkpw(password.encode(), user["mot_de_passe"].encode()):
         return None
-    return user_id
+    return str(user["_id"])
 
 def forgot_password(email):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-    user = cursor.fetchone()
+    user = users_col.find_one({"email": email})
     if not user:
-        conn.close()
         return False
     code = str(random.randint(100000, 999999))
-    cursor.execute("UPDATE users SET reset_code = ? WHERE id = ?", (code, user[0]))
-    conn.commit()
-    conn.close()
+    users_col.update_one({"_id": user["_id"]}, {"$set": {"reset_code": code}})
     body = f"Votre code de réinitialisation PowerRisk est : {code}"
     send_email(email, "Réinitialisation mot de passe PowerRisk", body, is_welcome=False)
     return True
 
 def reset_password(email, code, new_password):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ? AND reset_code = ?", (email, code))
-    user = cursor.fetchone()
+    user = users_col.find_one({"email": email, "reset_code": code})
     if not user:
-        conn.close()
         return False
     hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
-    cursor.execute("UPDATE users SET mot_de_passe = ?, reset_code = NULL WHERE id = ?", (hashed, user[0]))
-    conn.commit()
-    conn.close()
+    users_col.update_one({"_id": user["_id"]}, {"$set": {"mot_de_passe": hashed, "reset_code": None}})
     return True
 
 def get_points(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT total_points, used_points FROM points WHERE user_id = ?", (user_id,))
-    data = cursor.fetchone()
-    conn.close()
-    return data[0] - data[1] if data else 0
+    pts = points_col.find_one({"user_id": ObjectId(user_id)})
+    if not pts:
+        return 0
+    return pts["total_points"] - pts.get("used_points", 0)
 
 def use_points(user_id, amount):
     if get_points(user_id) < amount:
         return False
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE points SET used_points = used_points + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
-    conn.close()
+    points_col.update_one({"user_id": ObjectId(user_id)}, {"$inc": {"used_points": amount}})
     return True
+
 
 # =========================================================
 # EMAIL
