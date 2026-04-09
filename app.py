@@ -1,3 +1,4 @@
+
 # =========================================================
 # IMPORTS
 # =========================================================
@@ -802,7 +803,7 @@ elif menu == "Données":
 
     # ========== PAGE PRÉVISION ==========
     elif menu == "Prévision":
-    st.title("⚡ Prévision intelligente de la consommation et des coupures")
+        st.title("⚡ Prévision intelligente de la consommation et des coupures")
     
     # التحقق من الوصول
     access, detail = can_access_page(st.session_state.user_id)
@@ -901,7 +902,7 @@ elif menu == "Données":
 
     # ========== PAGE RAPPORT ==========
     elif menu == "Rapport":
-    st.title("📄 Rapport Intelligent - Analyse des Risques")
+        st.title("📄 Rapport Intelligent - Analyse des Risques")
     
     access, detail = can_access_page(st.session_state.user_id)
     if not access:
@@ -999,7 +1000,7 @@ elif menu == "Données":
 # PAGE SOLUTIONS (Version avec clé API intégrée - sans saisie)
 # =========================================================
     elif menu == "Solutions":
-    st.title("🛠 Solutions Recommandées - Analyse & Décision")
+        st.title("🛠 Solutions Recommandées - Analyse & Décision")
     
     access, detail = can_access_page(st.session_state.user_id)
     if not access:
