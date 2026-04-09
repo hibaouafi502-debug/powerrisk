@@ -689,11 +689,11 @@ elif menu == "Données":
             if st.session_state.get("weather_loaded", False):
                 st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
    # ========== PAGE ANALYSE ==========
-    elif menu == "Analyse":
-        st.title("📊 Analyse des Risques (Version Statistique & IA)")
-        if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
-            st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
-            st.stop()
+elif menu == "Analyse":
+    st.title("📊 Analyse des Risques (Version Statistique & IA)")
+    if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
+        st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
+        st.stop()
         consommations = st.session_state["consommations"]
         lambda_panne = st.session_state.get("lambda_panne", 0.0001)
         temp = st.session_state.get("temperature", 25.0)
