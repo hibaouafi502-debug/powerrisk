@@ -24,6 +24,9 @@ from scipy.stats import norm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import google.generativeai as genai
@@ -31,12 +34,10 @@ import google.generativeai as genai
 # =========================================================
 # DATABASE (MongoDB Atlas) - نسخه جاهزة
 # =========================================================
-from pymongo import MongoClient
-from bson.objectid import ObjectId
-from datetime import datetime
+
 
 # رابط الاتصال الخاص بك (مع كلمة السر)
-MONGO_URI = "mongodb+srv://powerrisk:<powerrisk22ps>@cluster0.rkxgkti.mongodb.net/"
+MONGO_URI = "mongodb+srv://powerrisk:<powerrisk22ps>@cluster0.rkxgkti.mongodb.net/?appName=Cluster0"
 
 # الاتصال بقاعدة البيانات
 client = MongoClient(MONGO_URI)
