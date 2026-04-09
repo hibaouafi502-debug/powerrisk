@@ -175,36 +175,81 @@ def reset_password(email, code, new_password):
     return True
 
 
+
+
+
+
+
+
+def get_points(user_id):
+    """Retourne le nombre de points disponibles (total - used)"""
+    try:
+        # Convertir user_id en ObjectId si nécessaire
+        if isinstance(user_id, str):
+            user_id = ObjectId(user_id)
+        pts = points_col.find_one({"user_id": user_id})
+        if not pts:
+            return 0
+        return pts["total_points"] - pts.get("used_points", 0)
+    except Exception as e:
+        print(f"Erreur get_points: {e}")
+        return 0
+
 def use_points(user_id):
-    # Vérifier abonnement illimité
-    from datetime import datetime
-    sub = subscriptions_col.find_one({"user_id": ObjectId(user_id)})
-    if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
-        expiry = sub.get("expiry_date")
-        if expiry and datetime.now() < expiry:
-            return True # accès gratuit sans consommation
-    
-    # Sinon consommer 5 points
-    if get_points(user_id) < 5:
+    """Consomme 5 points si l'utilisateur n'a pas d'abonnement illimité"""
+    try:
+        if isinstance(user_id, str):
+            user_id = ObjectId(user_id)
+        
+        # Vérifier abonnement illimité
+        sub = subscriptions_col.find_one({"user_id": user_id})
+        if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
+            expiry = sub.get("expiry_date")
+            if expiry and isinstance(expiry, str):
+                expiry = datetime.fromisoformat(expiry)
+            if expiry and expiry > datetime.now():
+                return True # accès illimité
+        
+        # Vérifier points
+        if get_points(user_id) < 5:
+            return False
+        
+        # Consommer 5 points
+        points_col.update_one(
+            {"user_id": user_id},
+            {"$inc": {"used_points": 5}}
+        )
+        return True
+    except Exception as e:
+        print(f"Erreur use_points: {e}")
         return False
-    points_col.update_one({"user_id": ObjectId(user_id)}, {"$inc": {"used_points": 5}})
-    return True
 
 def can_access_page(user_id):
-    """Vérifie si l'utilisateur peut accéder aux pages payantes (Prévision, Rapport, Solutions)"""
-    # Vérifier abonnement illimité
-    sub = subscriptions_col.find_one({"user_id": ObjectId(user_id)})
-    if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
-        expiry = sub.get("expiry_date")
-        if expiry and datetime.now() < expiry:
-            return True, "unlimited" # accès illimité
+    """Vérifie si l'utilisateur peut accéder aux pages payantes"""
+    try:
+        if isinstance(user_id, str):
+            user_id = ObjectId(user_id)
+        
+        # Vérifier abonnement illimité
+        sub = subscriptions_col.find_one({"user_id": user_id})
+        if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
+            expiry = sub.get("expiry_date")
+            if expiry and isinstance(expiry, str):
+                expiry = datetime.fromisoformat(expiry)
+            if expiry and expiry > datetime.now():
+                return True, "unlimited"
+        
+        # Vérifier points
+        points = get_points(user_id)
+        if points >= 5:
+            return True, "points"
+        else:
+            return False, points
+    except Exception as e:
+        print(f"Erreur can_access_page: {e}")
+        return False, 0
     
-    # Sinon, vérifier les points
-    points = get_points(user_id)
-    if points >= 5:
-        return True, "points"
-    else:
-        return False, points
+    
 
 
 # =========================================================
