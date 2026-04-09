@@ -462,7 +462,7 @@ if st.session_state.user_id:
 
 # ========== PAGE ACCUEIL ==========
 # ========== PAGE ACCUEIL ==========
-if menu == "🏠 Accueil":
+if menu == "Accueil":
     st.title("⚡ PowerRisk")
     st.subheader("Plateforme de gestion et d'analyse des données électriques")
 
@@ -573,138 +573,97 @@ if menu == "🏠 Accueil":
     # ========== PAGE DONNÉES ==========
    
 elif menu == "Données":
-    st.title("📁 Gestion des Données Industrielles")
-    
-    st.subheader("🌤️ Conditions météo actuelles")
-    # ... (الكود الخاص بالطقس كما هو، لا تغيير) ...
-    
-    # إضافة خيارات جديدة في القائمة
-    data_mode = st.radio("Choisissez le type de données", [
-        "🟢 Mode Simulation",
-        "🟡 BT - Factures (PDF)",
-        "🔵 MT - Compteurs intelligents (CSV)",
-        "🔌 Compteur intelligent (API)", # ✅ جديد
-        "📡 Arduino + Capteur" # ✅ جديد
-    ])
-    
-    # ---------- Mode Simulation (لا تغيير) ----------
-    if data_mode == "🟢 Mode Simulation":
-        if st.button("Générer données"):
-            consommations = list(np.random.normal(250, 30, 50))
-            voltage = float(np.random.normal(220, 5))
-            current = float(np.random.normal(30, 10))
-            nb_coupures_simulees = np.random.poisson(0.1, 1)[0]
-            duree_heures = 50 * 24
-            lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
-            st.session_state.consommations = consommations
-            st.session_state.voltage = voltage
-            st.session_state.current = current
-            st.session_state.lambda_panne = lambda_calculee
-            st.success("✅ Données simulées générées avec succès")
-    
-    # ---------- Facture PDF (لا تغيير) ----------
-    elif data_mode == "🟡 BT - Factures (PDF)":
-        pdf_file = st.file_uploader("Uploader facture PDF", type=["pdf"])
-        coupures = st.number_input("Nombre de coupures (sur la période)", min_value=0)
-        duree_heures = st.number_input("Durée totale d'observation (heures)", min_value=1, value=720)
-        if st.button("Analyser facture"):
-            if pdf_file:
-                conso = extract_electricity_from_pdf(pdf_file)
-                if conso is None:
-                    st.warning("Impossible de lire la consommation.")
+        st.title("📁 Gestion des Données Industrielles")
+        st.subheader("🌤️ Conditions météo actuelles")
+        if "lat" not in st.session_state:
+            st.session_state.lat = None
+            st.session_state.lon = None
+            st.session_state.weather_loaded = False
+        if st.button("📍 Détecter ma position"):
+            try:
+                location = streamlit_js_eval(js_expressions="navigator.geolocation.getCurrentPosition((pos) => { return pos.coords.latitude + ',' + pos.coords.longitude; })", key="gps_loc")
+                if location and location != "None" and "," in location:
+                    st.session_state.lat, st.session_state.lon = map(float, location.split(","))
+                    st.success(f"📍 Localisation détectée: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
                 else:
-                    st.session_state.consommations = [conso]
-                    lambda_calculee = coupures / duree_heures if duree_heures > 0 else 0.0001
-                    st.session_state.lambda_panne = lambda_calculee
-                    st.success(f"Consommation: {conso} kWh, λ = {lambda_calculee:.6f}")
-            else:
-                st.error("Veuillez uploader un PDF.")
-    
-    # ---------- Fichier CSV (لا تغيير) ----------
-    elif data_mode == "🔵 MT - Compteurs intelligents (CSV)":
-        csv_file = st.file_uploader("Uploader fichier CSV", type=["csv"])
-        if csv_file:
-            df = pd.read_csv(csv_file)
-            st.dataframe(df.head())
-            col_energy = st.selectbox("Colonne consommation (kWh)", df.columns)
-            col_voltage = st.selectbox("Colonne tension (V)", df.columns)
-            col_current = st.selectbox("Colonne courant (A)", df.columns)
-            if st.button("Analyser données MT"):
-                consommations = df[col_energy].dropna().tolist()
-                voltage = df[col_voltage].mean()
-                current = df[col_current].mean()
-                if "coupure" in df.columns or "failure" in df.columns:
-                    col_fail = "coupure" if "coupure" in df.columns else "failure"
-                    nb_coupures = df[col_fail].sum()
-                    duree_heures = len(df)
-                    lambda_calculee = nb_coupures / duree_heures if duree_heures > 0 else 0.0001
+                    st.warning("⚠️ Impossible de détecter la position.")
+            except:
+                st.warning("⚠️ Erreur de géolocalisation.")
+        city = st.text_input("🏙️ Ou entrez votre ville (ex: Alger, Oran, Constantine)")
+        if city and (st.session_state.lat is None or st.button("🌐 Chercher cette ville")):
+            try:
+                api_key = "fd6a9aa64777078b3f7c711fb754b431"
+                url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={api_key}"
+                res = requests.get(url).json()
+                if res:
+                    st.session_state.lat = res[0]["lat"]
+                    st.session_state.lon = res[0]["lon"]
+                    st.success(f"📍 Ville trouvée: {city}")
                 else:
-                    lambda_calculee = np.std(consommations) / (np.mean(consommations) + 0.01) * 0.01
-                st.session_state.consommations = consommations
-                st.session_state.voltage = voltage
-                st.session_state.current = current
-                st.session_state.lambda_panne = lambda_calculee
-                st.success(f"Données MT enregistrées. λ = {lambda_calculee:.6f}")
-    
-    # ---------- NOUVEAU : Compteur intelligent (API) ----------
-    elif data_mode == "🔌 Compteur intelligent (API)":
-        st.info("📡 Connectez-vous à votre compteur intelligent via API.")
-        api_url = st.text_input("URL de l'API (ex: https://api.compteur.com/v1/data)")
-        api_key = st.text_input("Clé API (optionnelle)", type="password")
-        if st.button("Récupérer les données"):
-            if api_url:
-                try:
-                    # Simulation d'appel API (dans la réalité, vous feriez requests.get)
-                    st.warning("⚠️ Mode démonstration : génération de données simulées.")
-                    # Simuler des données pour démonstration
-                    consommations = list(np.random.normal(250, 30, 30))
-                    voltage = float(np.random.normal(220, 5))
-                    current = float(np.random.normal(30, 10))
-                    nb_coupures_simulees = np.random.poisson(0.05, 1)[0]
-                    duree_heures = 30 * 24
-                    lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
-                    st.session_state.consommations = consommations
-                    st.session_state.voltage = voltage
-                    st.session_state.current = current
-                    st.session_state.lambda_panne = lambda_calculee
-                    st.success(f"✅ Données récupérées via API (simulées) : {len(consommations)} valeurs.")
-                except Exception as e:
-                    st.error(f"Erreur lors de l'appel API : {e}")
-            else:
-                st.error("Veuillez entrer une URL API valide.")
-    
-    # ---------- NOUVEAU : Arduino + Capteur ----------
-    elif data_mode == "📡 Arduino + Capteur":
-        st.info("📡 Connectez votre Arduino ou téléchargez un fichier de données.")
-        st.markdown("""
-        **Options :**
-        1. **Upload d’un fichier CSV** provenant de l’Arduino (avec colonnes : consommation, tension, courant).
-        2. **Simulation** pour tester (génère des données similaires à un capteur).
-        """)
-        arduino_mode = st.radio("Mode de récupération", ["Simuler des données", "Uploader un fichier CSV"])
-        if arduino_mode == "Simuler des données":
-            if st.button("Générer données Arduino"):
-                # Générer des données avec un bruit plus réaliste
-                consommations = list(np.random.normal(250, 40, 50))
-                voltage = float(np.random.normal(220, 8))
-                current = float(np.random.normal(30, 12))
-                nb_coupures_simulees = np.random.poisson(0.08, 1)[0]
+                    st.error("Ville non trouvée")
+            except:
+                st.error("Erreur de recherche")
+        if st.session_state.lat is not None and st.session_state.lon is not None:
+            try:
+                api_key = "fd6a9aa64777078b3f7c711fb754b431"
+                url_weather = f"http://api.openweathermap.org/data/2.5/weather?lat={st.session_state.lat}&lon={st.session_state.lon}&appid={api_key}&units=metric"
+                res_weather = requests.get(url_weather).json()
+                if res_weather.get("main"):
+                    st.session_state.temperature = res_weather["main"]["temp"]
+                    st.session_state.wind = res_weather["wind"]["speed"]
+                    st.session_state.weather_desc = res_weather["weather"][0]["description"]
+                    st.session_state.weather_loaded = True
+                else:
+                    st.error("Erreur récupération météo")
+            except Exception as e:
+                st.error(f"Erreur: {e}")
+        if st.session_state.get("weather_loaded", False):
+            col_met1, col_met2, col_met3 = st.columns(3)
+            col_met1.metric("🌡️ Température", f"{st.session_state.temperature:.1f} °C")
+            col_met2.metric("💨 Vent", f"{st.session_state.wind:.1f} km/h")
+            col_met3.metric("🌥️ Description", st.session_state.get("weather_desc", "N/A"))
+        else:
+            st.info("👆 Cliquez sur 'Détecter ma position' ou entrez une ville.")
+        st.markdown("---")
+        data_mode = st.radio("Choisissez le type de données", ["🟢 Mode Simulation", "🟡 BT - Factures (PDF)", "🔵 MT - Compteurs intelligents (CSV)"])
+        if data_mode == "🟢 Mode Simulation":
+            if st.button("Générer données"):
+                consommations = list(np.random.normal(250, 30, 50))
+                voltage = float(np.random.normal(220, 5))
+                current = float(np.random.normal(30, 10))
+                nb_coupures_simulees = np.random.poisson(0.1, 1)[0]
                 duree_heures = 50 * 24
                 lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
                 st.session_state.consommations = consommations
                 st.session_state.voltage = voltage
                 st.session_state.current = current
                 st.session_state.lambda_panne = lambda_calculee
-                st.success(f"✅ Données Arduino simulées : {len(consommations)} valeurs.")
-        else:
-            csv_file = st.file_uploader("Uploader fichier CSV (Arduino)", type=["csv"])
+                st.success("✅ Données simulées générées avec succès")
+        elif data_mode == "🟡 BT - Factures (PDF)":
+            pdf_file = st.file_uploader("Uploader facture PDF", type=["pdf"])
+            coupures = st.number_input("Nombre de coupures (sur la période)", min_value=0)
+            duree_heures = st.number_input("Durée totale d'observation (heures)", min_value=1, value=720)
+            if st.button("Analyser facture"):
+                if pdf_file:
+                    conso = extract_electricity_from_pdf(pdf_file)
+                    if conso is None:
+                        st.warning("Impossible de lire la consommation.")
+                    else:
+                        st.session_state.consommations = [conso]
+                        lambda_calculee = coupures / duree_heures if duree_heures > 0 else 0.0001
+                        st.session_state.lambda_panne = lambda_calculee
+                        st.success(f"Consommation: {conso} kWh, λ = {lambda_calculee:.6f}")
+                else:
+                    st.error("Veuillez uploader un PDF.")
+        elif data_mode == "🔵 MT - Compteurs intelligents (CSV)":
+            csv_file = st.file_uploader("Uploader fichier CSV", type=["csv"])
             if csv_file:
                 df = pd.read_csv(csv_file)
                 st.dataframe(df.head())
                 col_energy = st.selectbox("Colonne consommation (kWh)", df.columns)
                 col_voltage = st.selectbox("Colonne tension (V)", df.columns)
                 col_current = st.selectbox("Colonne courant (A)", df.columns)
-                if st.button("Analyser données Arduino"):
+                if st.button("Analyser données MT"):
                     consommations = df[col_energy].dropna().tolist()
                     voltage = df[col_voltage].mean()
                     current = df[col_current].mean()
@@ -719,19 +678,17 @@ elif menu == "Données":
                     st.session_state.voltage = voltage
                     st.session_state.current = current
                     st.session_state.lambda_panne = lambda_calculee
-                    st.success(f"Données Arduino enregistrées. λ = {lambda_calculee:.6f}")
-    
-    # ---------- Affichage des données actuelles (comme avant) ----------
-    if st.session_state.consommations:
-        st.subheader("📊 Aperçu des données actuelles")
-        st.line_chart(st.session_state.consommations)
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("⚡ Taux de panne λ", f"{st.session_state.lambda_panne:.6f} /heure")
-        col_b.metric("🔌 Voltage moyen", f"{st.session_state.get('voltage', 0):.1f} V")
-        col_c.metric("💡 Courant moyen", f"{st.session_state.get('current', 0):.1f} A")
-        if st.session_state.get("weather_loaded", False):
-            st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
-    # ========== PAGE ANALYSE ==========
+                    st.success(f"Données MT enregistrées. λ = {lambda_calculee:.6f}")
+        if st.session_state.consommations:
+            st.subheader("📊 Aperçu des données actuelles")
+            st.line_chart(st.session_state.consommations)
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("⚡ Taux de panne λ", f"{st.session_state.lambda_panne:.6f} /heure")
+            col_b.metric("🔌 Voltage moyen", f"{st.session_state.get('voltage', 0):.1f} V")
+            col_c.metric("💡 Courant moyen", f"{st.session_state.get('current', 0):.1f} A")
+            if st.session_state.get("weather_loaded", False):
+                st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
+   # ========== PAGE ANALYSE ==========
     elif menu == "Analyse":
         st.title("📊 Analyse des Risques (Version Statistique & IA)")
         if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
