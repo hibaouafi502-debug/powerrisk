@@ -36,25 +36,36 @@ import google.generativeai as genai
 # =========================================================
 
 
-# رابط الاتصال الخاص بك (مع كلمة السر)
-MONGO_URI = "mongodb+srv://powerrisk:powerrisk22ps@cluster0.rkxgkti.mongodb.net/?retryWrites=true&w=majority"
+# =========================================================
+# DATABASE (MongoDB Atlas)
+# =========================================================
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from datetime import datetime
 
-# الاتصال بقاعدة البيانات
+# ⚠️ REMPLACEZ CE URI PAR LE VÔTRE (avec le nom de la base de données à la fin)
+MONGO_URI = "mongodb+srv://powerrisk:powerrisk22ps@cluster0.rkxgkti.mongodb.net/powerrisk?retryWrites=true&w=majority"
+
+# Connexion à MongoDB
 client = MongoClient(MONGO_URI)
-db = client["powerrisk"] # اسم قاعدة البيانات
+db = client["powerrisk"] # nom de la base de données (peut être différent)
 
-# المجموعات (جداول)
+# Collections (tables)
 users_col = db["users"]
 entreprises_col = db["entreprises"]
 points_col = db["points"]
 subscriptions_col = db["subscriptions"]
 
 # =========================================================
-# دوال المصادقة (MongoDB)
+# FONCTIONS D'AUTHENTIFICATION (MongoDB)
 # =========================================================
 
 def register_user(data):
-    if users_col.find_one({"email": data["email"]}):
+    # Normalisation de l'email (minuscules)
+    email = data["email"].lower().strip()
+    
+    # Vérifier si l'email existe déjà
+    if users_col.find_one({"email": email}):
         return "EMAIL_EXISTS"
     
     hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
@@ -62,7 +73,7 @@ def register_user(data):
     
     user = {
         "nom_complet": data["nom"],
-        "email": data["email"],
+        "email": email,
         "mot_de_passe": hashed,
         "verification_code": code,
         "is_verified": 0,
@@ -77,7 +88,7 @@ def register_user(data):
         "secteur_activite": data["secteur"],
         "taille_entreprise": data["taille"],
         "wilaya": data["wilaya"],
-        "email_professionnel": data["email"],
+        "email_professionnel": email,
         "type_installation": data["type_installation"],
         "puissance_installee_kva": data["puissance"],
         "consommation_moyenne_kwh": data["consommation"],
@@ -113,17 +124,22 @@ def register_user(data):
     }
     subscriptions_col.insert_one(subscription)
     
-    send_email(data["email"], "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
+    # Envoi de l'email de bienvenue avec le code
+    send_email(email, "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
     return "SUCCESS"
 
+
 def verify_account(email, code):
+    email = email.lower().strip()
     user = users_col.find_one({"email": email, "verification_code": code})
     if not user:
         return None
     users_col.update_one({"_id": user["_id"]}, {"$set": {"is_verified": 1, "verification_code": None}})
     return str(user["_id"])
 
+
 def login_user(email, password):
+    email = email.lower().strip()
     user = users_col.find_one({"email": email})
     if not user:
         return None
@@ -133,7 +149,9 @@ def login_user(email, password):
         return None
     return str(user["_id"])
 
+
 def forgot_password(email):
+    email = email.lower().strip()
     user = users_col.find_one({"email": email})
     if not user:
         return False
@@ -143,7 +161,9 @@ def forgot_password(email):
     send_email(email, "Réinitialisation mot de passe PowerRisk", body, is_welcome=False)
     return True
 
+
 def reset_password(email, code, new_password):
+    email = email.lower().strip()
     user = users_col.find_one({"email": email, "reset_code": code})
     if not user:
         return False
@@ -151,18 +171,25 @@ def reset_password(email, code, new_password):
     users_col.update_one({"_id": user["_id"]}, {"$set": {"mot_de_passe": hashed, "reset_code": None}})
     return True
 
+
 def get_points(user_id):
-    pts = points_col.find_one({"user_id": ObjectId(user_id)})
+    try:
+        pts = points_col.find_one({"user_id": ObjectId(user_id)})
+    except:
+        pts = points_col.find_one({"user_id": user_id})
     if not pts:
         return 0
     return pts["total_points"] - pts.get("used_points", 0)
 
+
 def use_points(user_id, amount):
     if get_points(user_id) < amount:
         return False
-    points_col.update_one({"user_id": ObjectId(user_id)}, {"$inc": {"used_points": amount}})
+    try:
+        points_col.update_one({"user_id": ObjectId(user_id)}, {"$inc": {"used_points": amount}})
+    except:
+        points_col.update_one({"user_id": user_id}, {"$inc": {"used_points": amount}})
     return True
-
 
 # =========================================================
 # EMAIL
