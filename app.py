@@ -37,7 +37,7 @@ import google.generativeai as genai
 
 
 # رابط الاتصال الخاص بك (مع كلمة السر)
-MONGO_URI = "mongodb+srv://powerrisk:<powerrisk22ps>@cluster0.rkxgkti.mongodb.net/?appName=Cluster0"
+MONGO_URI = "mongodb+srv://powerrisk:powerrisk22ps@cluster0.rkxgkti.mongodb.net/?retryWrites=true&w=majority"
 
 # الاتصال بقاعدة البيانات
 client = MongoClient(MONGO_URI)
