@@ -662,51 +662,51 @@ elif menu == "Données":
                 else:
                     st.error("Veuillez uploader un PDF.")
         elif data_mode == "📡 Arduino + Capteur":
-        st.info("📡 Connectez votre Arduino ou téléchargez un fichier de données.")
-        st.markdown("""
-        **Options :**
-        1. **Upload d’un fichier CSV** provenant de l’Arduino (avec colonnes : consommation, tension, courant).
-        2. **Simulation** pour tester (génère des données similaires à un capteur).
-        """)
-        arduino_mode = st.radio("Mode de récupération", ["Simuler des données", "Uploader un fichier CSV"])
-        if arduino_mode == "Simuler des données":
-            if st.button("Générer données Arduino"):
-                # Générer des données avec un bruit plus réaliste
-                consommations = list(np.random.normal(250, 40, 50))
-                voltage = float(np.random.normal(220, 8))
-                current = float(np.random.normal(30, 12))
-                nb_coupures_simulees = np.random.poisson(0.08, 1)[0]
-                duree_heures = 50 * 24
-                lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
-                st.session_state.consommations = consommations
-                st.session_state.voltage = voltage
-                st.session_state.current = current
-                st.session_state.lambda_panne = lambda_calculee
-                st.success(f"✅ Données Arduino simulées : {len(consommations)} valeurs.")
-        else:
-            csv_file = st.file_uploader("Uploader fichier CSV (Arduino)", type=["csv"])
-            if csv_file:
-                df = pd.read_csv(csv_file)
-                st.dataframe(df.head())
-                col_energy = st.selectbox("Colonne consommation (kWh)", df.columns)
-                col_voltage = st.selectbox("Colonne tension (V)", df.columns)
-                col_current = st.selectbox("Colonne courant (A)", df.columns)
-                if st.button("Analyser données Arduino"):
-                    consommations = df[col_energy].dropna().tolist()
-                    voltage = df[col_voltage].mean()
-                    current = df[col_current].mean()
-                    if "coupure" in df.columns or "failure" in df.columns:
-                        col_fail = "coupure" if "coupure" in df.columns else "failure"
-                        nb_coupures = df[col_fail].sum()
-                        duree_heures = len(df)
-                        lambda_calculee = nb_coupures / duree_heures if duree_heures > 0 else 0.0001
-                    else:
-                        lambda_calculee = np.std(consommations) / (np.mean(consommations) + 0.01) * 0.01
-                    st.session_state.consommations = consommations
-                    st.session_state.voltage = voltage
-                    st.session_state.current = current
-                    st.session_state.lambda_panne = lambda_calculee
-                    st.success(f"Données Arduino enregistrées. λ = {lambda_calculee:.6f}")
+            st.info("📡 Connectez votre Arduino ou téléchargez un fichier de données.")
+            st.markdown("""
+            **Options :**
+             1. **Upload d’un fichier CSV** provenant de l’Arduino (avec colonnes : consommation, tension, courant).
+             2. **Simulation** pour tester (génère des données similaires à un capteur).
+             """)
+            arduino_mode = st.radio("Mode de récupération", ["Simuler des données", "Uploader un fichier CSV"])
+            if arduino_mode == "Simuler des données":
+               if st.button("Générer données Arduino"):
+                  # Générer des données avec un bruit plus réaliste
+                  consommations = list(np.random.normal(250, 40, 50))
+                  voltage = float(np.random.normal(220, 8))
+                  current = float(np.random.normal(30, 12))
+                  nb_coupures_simulees = np.random.poisson(0.08, 1)[0]
+                  duree_heures = 50 * 24
+                  lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
+                  st.session_state.consommations = consommations
+                  st.session_state.voltage = voltage
+                  st.session_state.current = current
+                  st.session_state.lambda_panne = lambda_calculee
+                  st.success(f"✅ Données Arduino simulées : {len(consommations)} valeurs.")
+            else:
+                 csv_file = st.file_uploader("Uploader fichier CSV (Arduino)", type=["csv"])
+                 if csv_file:
+                   df = pd.read_csv(csv_file)
+                   st.dataframe(df.head())
+                   col_energy = st.selectbox("Colonne consommation (kWh)", df.columns)
+                   col_voltage = st.selectbox("Colonne tension (V)", df.columns)
+                   col_current = st.selectbox("Colonne courant (A)", df.columns)
+                   if st.button("Analyser données Arduino"):
+                      consommations = df[col_energy].dropna().tolist()
+                      voltage = df[col_voltage].mean()
+                      current = df[col_current].mean()
+                      if "coupure" in df.columns or "failure" in df.columns:
+                         col_fail = "coupure" if "coupure" in df.columns else "failure"
+                         nb_coupures = df[col_fail].sum()
+                         duree_heures = len(df)
+                         lambda_calculee = nb_coupures / duree_heures if duree_heures > 0 else 0.0001
+                     else:
+                          lambda_calculee = np.std(consommations) / (np.mean(consommations) + 0.01) * 0.01
+                          st.session_state.consommations = consommations
+                          st.session_state.voltage = voltage
+                          st.session_state.current = current
+                          st.session_state.lambda_panne = lambda_calculee
+                          st.success(f"Données Arduino enregistrées. λ = {lambda_calculee:.6f}")
                 
         elif data_mode == "🔵 MT - Compteurs intelligents (CSV)":
             csv_file = st.file_uploader("Uploader fichier CSV", type=["csv"])
