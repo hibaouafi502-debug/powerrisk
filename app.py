@@ -882,8 +882,8 @@ elif menu == "Analyse":
             """)
 
     # ========== PAGE PRÉVISION ==========
-    elif menu == "Prévision":
-        st.title("⚡ Prévision intelligente de la consommation et des coupures")
+elif menu == "Prévision":
+    st.title("⚡ Prévision intelligente de la consommation et des coupures")
     
     # التحقق من الوصول
     access, detail = can_access_page(st.session_state.user_id)
@@ -981,8 +981,8 @@ elif menu == "Analyse":
             st.success("**Situation stable :** vous pouvez travailler normalement.")
 
     # ========== PAGE RAPPORT ==========
-    elif menu == "Rapport":
-        st.title("📄 Rapport Intelligent - Analyse des Risques")
+elif menu == "Rapport":
+     st.title("📄 Rapport Intelligent - Analyse des Risques")
     
     access, detail = can_access_page(st.session_state.user_id)
     if not access:
@@ -1079,8 +1079,8 @@ elif menu == "Analyse":
 # =========================================================
 # PAGE SOLUTIONS (Version avec clé API intégrée - sans saisie)
 # =========================================================
-    elif menu == "Solutions":
-        st.title("🛠 Solutions Recommandées - Analyse & Décision")
+elif menu == "Solutions":
+     st.title("🛠 Solutions Recommandées - Analyse & Décision")
     
     access, detail = can_access_page(st.session_state.user_id)
     if not access:
