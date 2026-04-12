@@ -992,8 +992,6 @@ elif menu == "Rapport":
     if detail == "points":
         use_points(st.session_state.user_id)
         st.info("ℹ️ 5 points déduits pour ce rapport.")
-    
-
         if "risk_final" not in st.session_state:
             st.warning("⚠️ Veuillez d'abord effectuer l'analyse du risque dans la page 'Analyse'.")
             st.stop()
