@@ -768,7 +768,7 @@ elif menu == "Données":
    
    # ========== PAGE ANALYSE ==========
 elif menu == "Analyse":
-    st.title("📊 Analyse des Risques (Version Statistique & IA)")
+    st.title("📊 Analyse des Risques ")
     if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
         st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
         st.stop()
