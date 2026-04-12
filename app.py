@@ -983,13 +983,12 @@ elif menu == "Prévision":
     # ========== PAGE RAPPORT ==========
 elif menu == "Rapport":
      st.title("📄 Rapport Intelligent - Analyse des Risques")
+     access, detail = can_access_page(st.session_state.user_id)
+     if not access:
+            st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
+            st.stop()
     
-    access, detail = can_access_page(st.session_state.user_id)
-    if not access:
-        st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
-        st.stop()
-    
-    if detail == "points":
+     if detail == "points":
         use_points(st.session_state.user_id)
         st.info("ℹ️ 5 points déduits pour ce rapport.")
         if "risk_final" not in st.session_state:
