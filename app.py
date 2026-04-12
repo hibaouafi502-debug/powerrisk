@@ -625,7 +625,13 @@ elif menu == "Données":
         else:
             st.info("👆 Cliquez sur 'Détecter ma position' ou entrez une ville.")
         st.markdown("---")
-        data_mode = st.radio("Choisissez le type de données", ["🟢 Mode Simulation", "🟡 BT - Factures (PDF)", "🔵 MT - Compteurs intelligents (CSV)"])
+        data_mode = st.radio("Choisissez le type de données", [
+        "🟢 Mode Simulation",
+        "🟡 BT - Factures (PDF)",
+        "🔵 MT - Compteurs intelligents (CSV)",
+        "🔌 Compteur intelligent (API)", # ✅ جديد
+        "📡 Arduino + Capteur" # ✅ جديد
+    ])
         if data_mode == "🟢 Mode Simulation":
             if st.button("Générer données"):
                 consommations = list(np.random.normal(250, 30, 50))
@@ -655,6 +661,53 @@ elif menu == "Données":
                         st.success(f"Consommation: {conso} kWh, λ = {lambda_calculee:.6f}")
                 else:
                     st.error("Veuillez uploader un PDF.")
+        elif data_mode == "📡 Arduino + Capteur":
+        st.info("📡 Connectez votre Arduino ou téléchargez un fichier de données.")
+        st.markdown("""
+        **Options :**
+        1. **Upload d’un fichier CSV** provenant de l’Arduino (avec colonnes : consommation, tension, courant).
+        2. **Simulation** pour tester (génère des données similaires à un capteur).
+        """)
+        arduino_mode = st.radio("Mode de récupération", ["Simuler des données", "Uploader un fichier CSV"])
+        if arduino_mode == "Simuler des données":
+            if st.button("Générer données Arduino"):
+                # Générer des données avec un bruit plus réaliste
+                consommations = list(np.random.normal(250, 40, 50))
+                voltage = float(np.random.normal(220, 8))
+                current = float(np.random.normal(30, 12))
+                nb_coupures_simulees = np.random.poisson(0.08, 1)[0]
+                duree_heures = 50 * 24
+                lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
+                st.session_state.consommations = consommations
+                st.session_state.voltage = voltage
+                st.session_state.current = current
+                st.session_state.lambda_panne = lambda_calculee
+                st.success(f"✅ Données Arduino simulées : {len(consommations)} valeurs.")
+        else:
+            csv_file = st.file_uploader("Uploader fichier CSV (Arduino)", type=["csv"])
+            if csv_file:
+                df = pd.read_csv(csv_file)
+                st.dataframe(df.head())
+                col_energy = st.selectbox("Colonne consommation (kWh)", df.columns)
+                col_voltage = st.selectbox("Colonne tension (V)", df.columns)
+                col_current = st.selectbox("Colonne courant (A)", df.columns)
+                if st.button("Analyser données Arduino"):
+                    consommations = df[col_energy].dropna().tolist()
+                    voltage = df[col_voltage].mean()
+                    current = df[col_current].mean()
+                    if "coupure" in df.columns or "failure" in df.columns:
+                        col_fail = "coupure" if "coupure" in df.columns else "failure"
+                        nb_coupures = df[col_fail].sum()
+                        duree_heures = len(df)
+                        lambda_calculee = nb_coupures / duree_heures if duree_heures > 0 else 0.0001
+                    else:
+                        lambda_calculee = np.std(consommations) / (np.mean(consommations) + 0.01) * 0.01
+                    st.session_state.consommations = consommations
+                    st.session_state.voltage = voltage
+                    st.session_state.current = current
+                    st.session_state.lambda_panne = lambda_calculee
+                    st.success(f"Données Arduino enregistrées. λ = {lambda_calculee:.6f}")
+                
         elif data_mode == "🔵 MT - Compteurs intelligents (CSV)":
             csv_file = st.file_uploader("Uploader fichier CSV", type=["csv"])
             if csv_file:
@@ -679,6 +732,36 @@ elif menu == "Données":
                     st.session_state.current = current
                     st.session_state.lambda_panne = lambda_calculee
                     st.success(f"Données MT enregistrées. λ = {lambda_calculee:.6f}")
+    
+                # ---------- NOUVEAU : Compteur intelligent (API) ----------
+        elif data_mode == "🔌 Compteur intelligent (API)":
+            st.info("📡 Connectez-vous à votre compteur intelligent via API.")
+            api_url = st.text_input("URL de l'API (ex: https://api.compteur.com/v1/data)")
+            api_key = st.text_input("Clé API (optionnelle)", type="password")
+            if st.button("Récupérer les données"):
+                if api_url:
+                   try:
+                       # Simulation d'appel API (dans la réalité, vous feriez requests.get)
+                       st.warning("⚠️ Mode démonstration : génération de données simulées.")
+                       # Simuler des données pour démonstration
+                       consommations = list(np.random.normal(250, 30, 30))
+                       voltage = float(np.random.normal(220, 5))
+                       current = float(np.random.normal(30, 10))
+                       nb_coupures_simulees = np.random.poisson(0.05, 1)[0]
+                       duree_heures = 30 * 24
+                       lambda_calculee = nb_coupures_simulees / duree_heures if duree_heures > 0 else 0.0001
+                       st.session_state.consommations = consommations
+                       st.session_state.voltage = voltage
+                       st.session_state.current = current
+                       st.session_state.lambda_panne = lambda_calculee
+                       st.success(f"✅ Données récupérées via API (simulées) : {len(consommations)} valeurs.")
+                   except Exception as e:
+                         st.error(f"Erreur lors de l'appel API : {e}")
+                else:
+                     st.error("Veuillez entrer une URL API valide.")
+    
+    # ---------- NOUVEAU : Arduino + Capteur ----------
+    
         if st.session_state.consommations:
             st.subheader("📊 Aperçu des données actuelles")
             st.line_chart(st.session_state.consommations)
