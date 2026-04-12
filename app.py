@@ -768,119 +768,133 @@ elif menu == "Données":
    
    # ========== PAGE ANALYSE ==========
 elif menu == "Analyse":
-    st.title("📊 Analyse des Risques ")
+    st.title("📊 Analyse des Risques")
+    
     if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
         st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
         st.stop()
-        consommations = st.session_state["consommations"]
-        lambda_panne = st.session_state.get("lambda_panne", 0.0001)
-        temp = st.session_state.get("temperature", 25.0)
-        wind = st.session_state.get("wind", 10.0)
-        if lambda_panne <= 0:
-            lambda_panne = 0.0001
-        st.subheader("📈 Résumé des données d'entrée")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("📊 Nombre de mesures", len(consommations))
-        col2.metric("⚡ Taux de panne λ", f"{lambda_panne:.6f} /h")
-        col3.metric("🌡️ Température", f"{temp:.1f} °C")
-        st.caption(f"💨 Vent : {wind:.1f} km/h")
-        from scipy.stats import shapiro
-        st.subheader("🔬 Validation des hypothèses statistiques")
-        if len(consommations) >= 3:
-            stat, p_value = shapiro(consommations)
-            st.write(f"**Test de normalité de Shapiro-Wilk** : p-value = {p_value:.4f}")
-            if p_value > 0.05:
-                st.success("✅ Les données suivent une loi normale (hypothèse acceptée).")
-                normal_assumption = True
-            else:
-                st.warning("⚠️ Les données ne suivent PAS une loi normale. Utilisation d'une méthode robuste (Bienaymé-Tchebychev).")
-                normal_assumption = False
+    
+    # Récupération des données (après la vérification)
+    consommations = st.session_state["consommations"]
+    lambda_panne = st.session_state.get("lambda_panne", 0.0001)
+    temp = st.session_state.get("temperature", 25.0)
+    wind = st.session_state.get("wind", 10.0)
+    if lambda_panne <= 0:
+        lambda_panne = 0.0001
+    
+    st.subheader("📈 Résumé des données d'entrée")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📊 Nombre de mesures", len(consommations))
+    col2.metric("⚡ Taux de panne λ", f"{lambda_panne:.6f} /h")
+    col3.metric("🌡️ Température", f"{temp:.1f} °C")
+    st.caption(f"💨 Vent : {wind:.1f} km/h")
+    
+    from scipy.stats import shapiro
+    st.subheader("🔬 Validation des hypothèses statistiques")
+    if len(consommations) >= 3:
+        stat, p_value = shapiro(consommations)
+        st.write(f"**Test de normalité de Shapiro-Wilk** : p-value = {p_value:.4f}")
+        if p_value > 0.05:
+            st.success("✅ Les données suivent une loi normale (hypothèse acceptée).")
+            normal_assumption = True
         else:
-            st.warning("⚠️ Pas assez de données pour le test de normalité (minimum 3).")
+            st.warning("⚠️ Les données ne suivent PAS une loi normale. Utilisation d'une méthode robuste (Bienaymé-Tchebychev).")
             normal_assumption = False
-        st.subheader("1️⃣ Probabilité de surcharge électrique")
-        series = pd.Series(consommations)
-        mean_val = series.mean()
-        std_val = series.std() if series.std() != 0 else 1.0
-        seuil = mean_val + 1.5 * std_val
-        if normal_assumption:
-            predicted_value = series.iloc[-1]
-            P_A = 1 - norm.cdf(seuil, loc=predicted_value, scale=std_val)
-            ic_low = mean_val - 1.96 * std_val / np.sqrt(len(series))
-            ic_high = mean_val + 1.96 * std_val / np.sqrt(len(series))
-            st.info(f"📊 **Intervalle de confiance 95% de la consommation moyenne** : [{ic_low:.1f}, {ic_high:.1f}] kWh")
-        else:
-            k = seuil / std_val if std_val > 0 else 1
-            P_A = 1 / (k**2) if k > 1 else 1.0
-            P_A = min(P_A, 1.0)
-            st.info("⚠️ Utilisation de l'inégalité de Bienaymé-Tchebychev (sans hypothèse de normalité)")
-        P_A = float(max(0, min(P_A, 1)))
-        st.metric("⚡ Probabilité de dépassement du seuil", f"{P_A*100:.2f} %")
-        st.caption(f"Seuil calculé : {seuil:.2f} kWh (moyenne + 1.5σ)")
-        st.subheader("2️⃣ Probabilité de panne (fiabilité réseau)")
-        P_B = 1 - np.exp(-lambda_panne)
-        MTBF = 1 / lambda_panne
-        st.metric("🔧 Probabilité de panne (dans l'heure)", f"{P_B*100:.2f} %")
-        st.metric("⏱️ MTBF (Mean Time Between Failures)", f"{MTBF:.1f} heures")
-        st.subheader("3️⃣ Impact météo (modèle logistique)")
-        if "weather_model" not in st.session_state:
-            X_train = np.array([[25,10], [30,20], [35,30], [40,40], [45,60], [42,70]])
-            y_train = np.array([0, 0, 1, 1, 1, 1])
-            model_weather = LogisticRegression()
-            model_weather.fit(X_train, y_train)
-            st.session_state["weather_model"] = model_weather
-        else:
-            model_weather = st.session_state["weather_model"]
-        proba_weather = model_weather.predict_proba([[temp, wind]])[0][1]
-        P_C = float(max(0, min(proba_weather, 1)))
-        st.metric("🌦️ Risque climatique estimé", f"{P_C*100:.2f} %")
-        st.caption(f"Conditions actuelles : {temp}°C, vent {wind} km/h")
-        st.subheader("4️⃣ Calcul du risque global (fusion personnalisable)")
-        col_w1, col_w2, col_w3 = st.columns(3)
-        with col_w1:
-            w_A = st.slider("Poids surcharge", 0.0, 1.0, 0.4, 0.05)
-        with col_w2:
-            w_B = st.slider("Poids fiabilité", 0.0, 1.0, 0.3, 0.05)
-        with col_w3:
-            w_C = st.slider("Poids météo", 0.0, 1.0, 0.3, 0.05)
-        total = w_A + w_B + w_C
-        if total > 0:
-            w_A, w_B, w_C = w_A/total, w_B/total, w_C/total
-        Risk = w_A * P_A + w_B * P_B + w_C * P_C
-        Risk = float(max(0, min(Risk, 1)))
-        st.metric("🎯 **Indice de Risque Global**", f"{Risk*100:.2f} %")
-        if Risk < 0.4:
-            st.success("🟢 **Niveau Faible** – Aucune action immédiate requise")
-        elif Risk < 0.7:
-            st.warning("🟠 **Niveau Moyen** – Surveillance renforcée recommandée")
-        else:
-            st.error("🔴 **Niveau Élevé** – Intervention nécessaire")
-        fig, ax = plt.subplots()
-        ax.bar(["Surcharge", "Fiabilité", "Météo"], [P_A, P_B, P_C], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
-        ax.set_ylabel("Probabilité")
-        ax.set_title("Comparaison des facteurs de risque")
-        ax.set_ylim(0, 1)
-        for i, v in enumerate([P_A, P_B, P_C]):
-            ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center')
-        st.pyplot(fig)
-        st.session_state["risk_final"] = Risk * 100
-        st.session_state["P_A"] = P_A
-        st.session_state["P_B"] = P_B
-        st.session_state["P_C"] = P_C
-        st.session_state["lambda_used"] = lambda_panne
-        with st.expander("📐 Voir les détails mathématiques"):
-            st.markdown(r"""
-            **1. Probabilité de surcharge**  
-            - Hypothèse normale : $P_A = 1 - \Phi\left(\frac{S - \hat{x}_{t+1}}{\sigma}\right)$  
-            - Sinon : Inégalité de Bienaymé-Tchebychev $P(|X-\mu|\ge k\sigma) \le \frac{1}{k^2}$.
-            **2. Probabilité de panne (fiabilité)**  
-            - Loi exponentielle : $P_B = 1 - e^{-\lambda t}$ avec $t=1$ heure.
-            **3. Impact météo**  
-            - Régression logistique : $P_C = \frac{1}{1+e^{-(\beta_0 + \beta_1 T + \beta_2 V)}}$.
-            **4. Risque global**  
-            - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
-            """)
-
+    else:
+        st.warning("⚠️ Pas assez de données pour le test de normalité (minimum 3).")
+        normal_assumption = False
+    
+    st.subheader("1️⃣ Probabilité de surcharge électrique")
+    series = pd.Series(consommations)
+    mean_val = series.mean()
+    std_val = series.std() if series.std() != 0 else 1.0
+    seuil = mean_val + 1.5 * std_val
+    
+    if normal_assumption:
+        predicted_value = series.iloc[-1]
+        P_A = 1 - norm.cdf(seuil, loc=predicted_value, scale=std_val)
+        ic_low = mean_val - 1.96 * std_val / np.sqrt(len(series))
+        ic_high = mean_val + 1.96 * std_val / np.sqrt(len(series))
+        st.info(f"📊 **Intervalle de confiance 95% de la consommation moyenne** : [{ic_low:.1f}, {ic_high:.1f}] kWh")
+    else:
+        k = seuil / std_val if std_val > 0 else 1
+        P_A = 1 / (k**2) if k > 1 else 1.0
+        P_A = min(P_A, 1.0)
+        st.info("⚠️ Utilisation de l'inégalité de Bienaymé-Tchebychev (sans hypothèse de normalité)")
+    P_A = float(max(0, min(P_A, 1)))
+    st.metric("⚡ Probabilité de dépassement du seuil", f"{P_A*100:.2f} %")
+    st.caption(f"Seuil calculé : {seuil:.2f} kWh (moyenne + 1.5σ)")
+    
+    st.subheader("2️⃣ Probabilité de panne (fiabilité réseau)")
+    P_B = 1 - np.exp(-lambda_panne)
+    MTBF = 1 / lambda_panne
+    st.metric("🔧 Probabilité de panne (dans l'heure)", f"{P_B*100:.2f} %")
+    st.metric("⏱️ MTBF (Mean Time Between Failures)", f"{MTBF:.1f} heures")
+    
+    st.subheader("3️⃣ Impact météo (modèle logistique)")
+    if "weather_model" not in st.session_state:
+        X_train = np.array([[25,10], [30,20], [35,30], [40,40], [45,60], [42,70]])
+        y_train = np.array([0, 0, 1, 1, 1, 1])
+        model_weather = LogisticRegression()
+        model_weather.fit(X_train, y_train)
+        st.session_state["weather_model"] = model_weather
+    else:
+        model_weather = st.session_state["weather_model"]
+    proba_weather = model_weather.predict_proba([[temp, wind]])[0][1]
+    P_C = float(max(0, min(proba_weather, 1)))
+    st.metric("🌦️ Risque climatique estimé", f"{P_C*100:.2f} %")
+    st.caption(f"Conditions actuelles : {temp}°C, vent {wind} km/h")
+    
+    st.subheader("4️⃣ Calcul du risque global (fusion personnalisable)")
+    col_w1, col_w2, col_w3 = st.columns(3)
+    with col_w1:
+        w_A = st.slider("Poids surcharge", 0.0, 1.0, 0.4, 0.05)
+    with col_w2:
+        w_B = st.slider("Poids fiabilité", 0.0, 1.0, 0.3, 0.05)
+    with col_w3:
+        w_C = st.slider("Poids météo", 0.0, 1.0, 0.3, 0.05)
+    total = w_A + w_B + w_C
+    if total > 0:
+        w_A, w_B, w_C = w_A/total, w_B/total, w_C/total
+    
+    Risk = w_A * P_A + w_B * P_B + w_C * P_C
+    Risk = float(max(0, min(Risk, 1)))
+    st.metric("🎯 **Indice de Risque Global**", f"{Risk*100:.2f} %")
+    
+    if Risk < 0.4:
+        st.success("🟢 **Niveau Faible** – Aucune action immédiate requise")
+    elif Risk < 0.7:
+        st.warning("🟠 **Niveau Moyen** – Surveillance renforcée recommandée")
+    else:
+        st.error("🔴 **Niveau Élevé** – Intervention nécessaire")
+    
+    fig, ax = plt.subplots()
+    ax.bar(["Surcharge", "Fiabilité", "Météo"], [P_A, P_B, P_C], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+    ax.set_ylabel("Probabilité")
+    ax.set_title("Comparaison des facteurs de risque")
+    ax.set_ylim(0, 1)
+    for i, v in enumerate([P_A, P_B, P_C]):
+        ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center')
+    st.pyplot(fig)
+    
+    st.session_state["risk_final"] = Risk * 100
+    st.session_state["P_A"] = P_A
+    st.session_state["P_B"] = P_B
+    st.session_state["P_C"] = P_C
+    st.session_state["lambda_used"] = lambda_panne
+    
+    with st.expander("📐 Voir les détails mathématiques"):
+        st.markdown(r"""
+        **1. Probabilité de surcharge**  
+        - Hypothèse normale : $P_A = 1 - \Phi\left(\frac{S - \hat{x}_{t+1}}{\sigma}\right)$  
+        - Sinon : Inégalité de Bienaymé-Tchebychev $P(|X-\mu|\ge k\sigma) \le \frac{1}{k^2}$.
+        **2. Probabilité de panne (fiabilité)**  
+        - Loi exponentielle : $P_B = 1 - e^{-\lambda t}$ avec $t=1$ heure.
+        **3. Impact météo**  
+        - Régression logistique : $P_C = \frac{1}{1+e^{-(\beta_0 + \beta_1 T + \beta_2 V)}}$.
+        **4. Risque global**  
+        - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
+        """)
     # ========== PAGE PRÉVISION ==========
 elif menu == "Prévision":
     st.title("⚡ Prévision intelligente de la consommation et des coupures")
