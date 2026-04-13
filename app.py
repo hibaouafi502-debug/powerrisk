@@ -462,7 +462,7 @@ if st.session_state.user_id:
 
 # ========== PAGE ACCUEIL ==========
 # ========== PAGE ACCUEIL ==========
-if menu == "Accueil":
+ if menu == "Accueil":
     st.title("⚡ PowerRisk")
     st.subheader("Plateforme de gestion et d'analyse des données électriques")
 
@@ -571,7 +571,7 @@ if menu == "Accueil":
 
 
     # ========== PAGE DONNÉES ==========
-elif menu == "Données":
+ elif menu == "Données":
     st.title("📁 Gestion des Données Industrielles")
     st.subheader("🌤️ Conditions météo actuelles")
     if "lat" not in st.session_state:
