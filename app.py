@@ -1275,6 +1275,8 @@ elif menu == "Solutions":
     st.write("---")
     st.caption("Analyse générée par PowerRisk – recommandations basées sur les données et l'intelligence artificielle.")
 # ========== PAGE ADMIN ==========
+
+# ========== PAGE ADMIN ==========
 elif menu == "Admin" and is_admin_user(st.session_state.user_id):
     st.title("👑 Administration - PowerRisk")
     st.markdown("Bienvenue, administrateur. Vous avez un accès illimité à toutes les fonctionnalités.")
@@ -1283,6 +1285,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
         "📊 Dashboard", "👥 Utilisateurs", "⚠️ Risques", "🤖 IA", "💰 Abonnements", "📢 Notifications"
     ])
     
+    # ---------- TAB 1 : DASHBOARD ----------
     with tab1:
         st.subheader("📊 Statistiques générales")
         total_users = users_col.count_documents({})
@@ -1298,14 +1301,29 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
         col4.metric("📊 Analyses effectuées", total_analyses)
         st.metric("🎯 Points consommés (total)", total_points_used)
         
-        st.subheader("Évolution des inscriptions (simulation)")
-        dates = pd.date_range(end=datetime.today(), periods=6, freq='MS')
+        st.subheader("📈 Évolution des inscriptions (simulation)")
+        # توليد تواريخ آخر 6 أشهر (أول يوم من كل شهر) - طريقة مستقلة عن pandas
+        from datetime import datetime, timedelta
+        today = datetime.today()
+        dates = []
+        for i in range(5, -1, -1):
+            year = today.year
+            month = today.month - i
+            if month <= 0:
+                month += 12
+                year -= 1
+            dates.append(datetime(year, month, 1))
+        # محاكاة عدد المستخدمين الجدد
         users_per_month = np.random.randint(5, 30, size=6)
         fig, ax = plt.subplots()
-        ax.plot(dates, users_per_month, marker='o')
+        ax.plot(dates, users_per_month, marker='o', linestyle='-')
         ax.set_title("Nouveaux utilisateurs par mois")
+        ax.set_xlabel("Mois")
+        ax.set_ylabel("Nombre d'inscriptions")
+        plt.xticks(rotation=45)
         st.pyplot(fig)
     
+    # ---------- TAB 2 : GESTION DES UTILISATEURS ----------
     with tab2:
         st.subheader("👥 Gestion des utilisateurs")
         users = list(users_col.find())
@@ -1318,7 +1336,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
                     st.write(f"**Vérifié:** {'✅' if user.get('is_verified') else '❌'}")
                     pts = points_col.find_one({"user_id": user['_id']})
                     if pts:
-                        st.write(f"**Points restants:** {pts['total_points'] - pts.get('used_points',0)}")
+                        st.write(f"**Points restants:** {pts['total_points'] - pts.get('used_points', 0)}")
                 with col_b:
                     if not user.get('is_admin'):
                         if st.button("⭐ Promouvoir admin", key=f"promote_{user['_id']}"):
@@ -1339,6 +1357,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
                         st.success(f"Utilisateur {user['email']} supprimé")
                         st.rerun()
     
+    # ---------- TAB 3 : SURVEILLANCE DES RISQUES ----------
     with tab3:
         st.subheader("⚠️ Surveillance des risques")
         st.info("Les utilisateurs avec un risque élevé seront listés ici (simulation).")
@@ -1352,6 +1371,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
         if st.button("📧 Envoyer une alerte aux utilisateurs à risque"):
             st.success("Alerte envoyée (simulation)")
     
+    # ---------- TAB 4 : CONTRÔLE IA ----------
     with tab4:
         st.subheader("🤖 Contrôle des modèles IA")
         st.info("Paramètres des modèles de prévision et d'analyse.")
@@ -1368,6 +1388,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
             st.session_state["weather_model"] = model_weather
             st.success("Modèle météo ré-entraîné")
     
+    # ---------- TAB 5 : ABONNEMENTS ----------
     with tab5:
         st.subheader("💰 Abonnements")
         total_subscriptions = subscriptions_col.count_documents({})
@@ -1379,11 +1400,12 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
         for p in plans:
             st.write(f"- {p['_id']} : {p['count']} utilisateurs")
         st.subheader("Modifier les tarifs")
-        new_monthly = st.number_input("Prix mensuel (DZD)", value=1000)
-        new_yearly = st.number_input("Prix annuel (DZD)", value=6000)
+        new_monthly = st.number_input("Prix mensuel (DZD)", value=1000, step=100)
+        new_yearly = st.number_input("Prix annuel (DZD)", value=6000, step=500)
         if st.button("Enregistrer nouveaux tarifs"):
             st.success(f"Nouveaux tarifs : {new_monthly} DZD/mois, {new_yearly} DZD/an (simulation)")
     
+    # ---------- TAB 6 : NOTIFICATIONS ----------
     with tab6:
         st.subheader("📢 Envoi de notifications")
         notification_msg = st.text_area("Message à envoyer à tous les utilisateurs")
@@ -1392,6 +1414,3 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
                 st.success("Notification envoyée à tous les utilisateurs (simulation)")
             else:
                 st.warning("Veuillez entrer un message")
-
-
-
