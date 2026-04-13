@@ -1,4 +1,3 @@
-
 # =========================================================
 # IMPORTS
 # =========================================================
@@ -27,49 +26,74 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from datetime import datetime
-from datetime import datetime, timedelta 
-from bson.objectid import ObjectId
 import plotly.express as px
 import plotly.graph_objects as go
 import google.generativeai as genai
 
 # =========================================================
-# DATABASE (MongoDB Atlas) - نسخه جاهزة
-# =========================================================
-
-
-# =========================================================
 # DATABASE (MongoDB Atlas)
 # =========================================================
-from pymongo import MongoClient
-from bson.objectid import ObjectId
-from datetime import datetime
 
-# ⚠️ REMPLACEZ CE URI PAR LE VÔTRE (avec le nom de la base de données à la fin)
 MONGO_URI = "mongodb+srv://powerrisk:powerrisk22ps@cluster0.rkxgkti.mongodb.net/powerrisk?retryWrites=true&w=majority"
 
-# Connexion à MongoDB
 client = MongoClient(MONGO_URI)
-db = client["powerrisk"] # nom de la base de données (peut être différent)
+db = client["powerrisk"]
 
-# Collections (tables)
 users_col = db["users"]
 entreprises_col = db["entreprises"]
 points_col = db["points"]
 subscriptions_col = db["subscriptions"]
 
 # =========================================================
+# ADMIN FUNCTIONS
+# =========================================================
+
+def init_admin():
+    """Crée le compte administrateur spécifique s'il n'existe pas"""
+    admin_email = "ouafiyousraps@gmail.com"
+    admin_user = users_col.find_one({"email": admin_email})
+    if not admin_user:
+        hashed = bcrypt.hashpw("Admin123".encode(), bcrypt.gensalt()).decode()
+        admin_data = {
+            "nom_complet": "Administrateur",
+            "email": admin_email,
+            "mot_de_passe": hashed,
+            "is_verified": 1,
+            "verification_code": None,
+            "reset_code": None,
+            "is_admin": 1,
+            "created_at": datetime.now()
+        }
+        users_col.insert_one(admin_data)
+        print(f"✅ Compte admin créé : {admin_email}")
+    else:
+        users_col.update_one({"email": admin_email}, {"$set": {"is_admin": 1}})
+
+def is_admin_user(user_id):
+    """Vérifie si l'utilisateur est administrateur"""
+    try:
+        if isinstance(user_id, str):
+            user_id = ObjectId(user_id)
+        user = users_col.find_one({"_id": user_id})
+        return user and user.get("is_admin", 0) == 1
+    except:
+        return False
+
+# Initialisation du compte admin
+init_admin()
+
+# =========================================================
 # FONCTIONS D'AUTHENTIFICATION (MongoDB)
 # =========================================================
 
 def register_user(data):
-    # Normalisation de l'email (minuscules)
     email = data["email"].lower().strip()
-    
-    # Vérifier si l'email existe déjà
     if users_col.find_one({"email": email}):
         return "EMAIL_EXISTS"
+    
+    # Premier utilisateur devient admin
+    user_count = users_col.count_documents({})
+    is_admin = 1 if user_count == 0 else 0
     
     hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
     code = str(random.randint(100000, 999999))
@@ -81,6 +105,7 @@ def register_user(data):
         "verification_code": code,
         "is_verified": 0,
         "reset_code": None,
+        "is_admin": is_admin,
         "created_at": datetime.now()
     }
     user_id = users_col.insert_one(user).inserted_id
@@ -127,10 +152,8 @@ def register_user(data):
     }
     subscriptions_col.insert_one(subscription)
     
-    # Envoi de l'email de bienvenue avec le code
     send_email(email, "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
     return "SUCCESS"
-
 
 def verify_account(email, code):
     email = email.lower().strip()
@@ -139,7 +162,6 @@ def verify_account(email, code):
         return None
     users_col.update_one({"_id": user["_id"]}, {"$set": {"is_verified": 1, "verification_code": None}})
     return str(user["_id"])
-
 
 def login_user(email, password):
     email = email.lower().strip()
@@ -152,7 +174,6 @@ def login_user(email, password):
         return None
     return str(user["_id"])
 
-
 def forgot_password(email):
     email = email.lower().strip()
     user = users_col.find_one({"email": email})
@@ -164,7 +185,6 @@ def forgot_password(email):
     send_email(email, "Réinitialisation mot de passe PowerRisk", body, is_welcome=False)
     return True
 
-
 def reset_password(email, code, new_password):
     email = email.lower().strip()
     user = users_col.find_one({"email": email, "reset_code": code})
@@ -174,17 +194,8 @@ def reset_password(email, code, new_password):
     users_col.update_one({"_id": user["_id"]}, {"$set": {"mot_de_passe": hashed, "reset_code": None}})
     return True
 
-
-
-
-
-
-
-
 def get_points(user_id):
-    """Retourne le nombre de points disponibles (total - used)"""
     try:
-        # Convertir user_id en ObjectId si nécessaire
         if isinstance(user_id, str):
             user_id = ObjectId(user_id)
         pts = points_col.find_one({"user_id": user_id})
@@ -196,7 +207,6 @@ def get_points(user_id):
         return 0
 
 def use_points(user_id):
-    """Consomme 5 points si l'utilisateur n'a pas d'abonnement illimité"""
     try:
         if isinstance(user_id, str):
             user_id = ObjectId(user_id)
@@ -208,13 +218,11 @@ def use_points(user_id):
             if expiry and isinstance(expiry, str):
                 expiry = datetime.fromisoformat(expiry)
             if expiry and expiry > datetime.now():
-                return True # accès illimité
+                return True
         
-        # Vérifier points
         if get_points(user_id) < 5:
             return False
         
-        # Consommer 5 points
         points_col.update_one(
             {"user_id": user_id},
             {"$inc": {"used_points": 5}}
@@ -225,12 +233,10 @@ def use_points(user_id):
         return False
 
 def can_access_page(user_id):
-    """Vérifie si l'utilisateur peut accéder aux pages payantes"""
     try:
         if isinstance(user_id, str):
             user_id = ObjectId(user_id)
         
-        # Vérifier abonnement illimité
         sub = subscriptions_col.find_one({"user_id": user_id})
         if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
             expiry = sub.get("expiry_date")
@@ -239,7 +245,6 @@ def can_access_page(user_id):
             if expiry and expiry > datetime.now():
                 return True, "unlimited"
         
-        # Vérifier points
         points = get_points(user_id)
         if points >= 5:
             return True, "points"
@@ -248,9 +253,6 @@ def can_access_page(user_id):
     except Exception as e:
         print(f"Erreur can_access_page: {e}")
         return False, 0
-    
-    
-
 
 # =========================================================
 # EMAIL
@@ -330,9 +332,8 @@ def get_weather_forecast(lat, lon):
 # INTERFACE PRINCIPALE
 # =========================================================
 st.set_page_config(page_title="PowerRisk", layout="wide")
-st.image("Logo.jpg", width=150) 
-st.title("Power Risk-Gestion des risques électriques ")
- 
+st.image("Logo.jpg", width=150)
+st.title("Power Risk-Gestion des risques électriques")
 
 # Initialisation session_state
 if "user_id" not in st.session_state:
@@ -439,13 +440,20 @@ if st.session_state.user_id is None:
 # ================= APRÈS CONNEXION =================
 if st.session_state.user_id:
     # Sidebar
-    st.sidebar.image("Logo.jpg", width=120) # Assurez-vous que le fichier existe
+    st.sidebar.image("Logo.jpg", width=120)
     st.sidebar.markdown("## ⚡ Power Risk")
     st.sidebar.markdown("Plateforme d'analyse avancée")
-    menu = st.sidebar.radio(
-        "Navigation",
-        ["Accueil", "Données", "Analyse", "Rapport", "Prévision", "Solutions"]
-    )
+    
+    # Vérifier si l'utilisateur est admin
+    admin_mode = is_admin_user(st.session_state.user_id)
+    
+    if admin_mode:
+        menu_options = ["Accueil", "Données", "Analyse", "Prévision", "Rapport", "Solutions", "Admin"]
+    else:
+        menu_options = ["Accueil", "Données", "Analyse", "Prévision", "Rapport", "Solutions"]
+    
+    menu = st.sidebar.radio("Navigation", menu_options)
+    
     if st.sidebar.button("Se déconnecter"):
         st.session_state.user_id = None
         st.rerun()
@@ -462,7 +470,6 @@ if st.session_state.user_id:
     </style>
     """, unsafe_allow_html=True)
 
-# ========== PAGE ACCUEIL ==========
 # ========== PAGE ACCUEIL ==========
 if menu == "Accueil":
     st.title("⚡ PowerRisk")
@@ -502,7 +509,6 @@ if menu == "Accueil":
 
     """)
 
-    # Affichage des offres en colonnes
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -510,9 +516,7 @@ if menu == "Accueil":
         st.write("500 DZD")
         st.caption("+20 points (4 utilisations)")
         if st.button("Acheter 20 points", key="buy_points"):
-            # Mettre à jour les points dans la base de données
             try:
-                from bson.objectid import ObjectId
                 points_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$inc": {"total_points": 20}}
@@ -528,8 +532,6 @@ if menu == "Accueil":
         st.caption("Accès illimité (Prévision, Rapport, Solutions)")
         if st.button("S'abonner mensuel", key="subscribe_monthly"):
             try:
-                from datetime import datetime, timedelta
-                from bson.objectid import ObjectId
                 subscriptions_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$set": {"plan": "MONTHLY", "expiry_date": datetime.now() + timedelta(days=30)}}
@@ -545,8 +547,6 @@ if menu == "Accueil":
         st.caption("Économie de 6 000 DZD par rapport au mensuel")
         if st.button("S'abonner annuel", key="subscribe_yearly"):
             try:
-                from datetime import datetime, timedelta
-                from bson.objectid import ObjectId
                 subscriptions_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$set": {"plan": "YEARLY", "expiry_date": datetime.now() + timedelta(days=365)}}
@@ -571,8 +571,7 @@ if menu == "Accueil":
     st.success("✅ PowerRisk – Plateforme claire, intuitive et professionnelle.")
     st.info("💡 Besoin d’aide ? Utilisez le chatbot dans la page 'Solutions'.")
 
-
-    # ========== PAGE DONNÉES ==========
+# ========== PAGE DONNÉES ==========
 elif menu == "Données":
     st.title("📁 Gestion des Données Industrielles")
     st.subheader("🌤️ Conditions météo actuelles")
@@ -630,8 +629,8 @@ elif menu == "Données":
         "🟢 Mode Simulation",
         "🟡 BT - Factures (PDF)",
         "🔵 MT - Compteurs intelligents (CSV)",
-        "🔌 Compteur intelligent (API)", # ✅ جديد
-        "📡 Arduino + Capteur" # ✅ جديد
+        "🔌 Compteur intelligent (API)",
+        "📡 Arduino + Capteur"
     ])
     if data_mode == "🟢 Mode Simulation":
         if st.button("Générer données"):
@@ -672,7 +671,6 @@ elif menu == "Données":
         arduino_mode = st.radio("Mode de récupération", ["Simuler des données", "Uploader un fichier CSV"])
         if arduino_mode == "Simuler des données":
             if st.button("Générer données Arduino"):
-                # Générer des données avec un bruit plus réaliste
                 consommations = list(np.random.normal(250, 40, 50))
                 voltage = float(np.random.normal(220, 8))
                 current = float(np.random.normal(30, 12))
@@ -739,9 +737,7 @@ elif menu == "Données":
         if st.button("Récupérer les données"):
             if api_url:
                 try:
-                    # Simulation d'appel API (dans la réalité, vous feriez requests.get)
                     st.warning("⚠️ Mode démonstration : génération de données simulées.")
-                    # Simuler des données pour démonstration
                     consommations = list(np.random.normal(250, 30, 30))
                     voltage = float(np.random.normal(220, 5))
                     current = float(np.random.normal(30, 10))
@@ -767,16 +763,14 @@ elif menu == "Données":
         col_c.metric("💡 Courant moyen", f"{st.session_state.get('current', 0):.1f} A")
         if st.session_state.get("weather_loaded", False):
             st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
-   
-   # ========== PAGE ANALYSE ==========
+
+# ========== PAGE ANALYSE ==========
 elif menu == "Analyse":
     st.title("📊 Analyse des Risques")
-    
     if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
         st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
         st.stop()
     
-    # Récupération des données (après la vérification)
     consommations = st.session_state["consommations"]
     lambda_panne = st.session_state.get("lambda_panne", 0.0001)
     temp = st.session_state.get("temperature", 25.0)
@@ -897,212 +891,205 @@ elif menu == "Analyse":
         **4. Risque global**  
         - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
         """)
-    # ========== PAGE PRÉVISION ==========
+
+# ========== PAGE PRÉVISION ==========
 elif menu == "Prévision":
     st.title("⚡ Prévision intelligente de la consommation et des coupures")
     
-    # التحقق من الوصول
-    access, detail = can_access_page(st.session_state.user_id)
-    if not access:
-        st.error(f"❌ Vous n'avez pas assez de points. Solde : {detail} points. (5 points requis)")
-        st.info("💡 Achetez un pack de points ou abonnez-vous pour un accès illimité.")
-        st.stop() # يمنع عرض باقي الصفحة
-    
-    # إذا كان الوصول مسموحاً، نكمل باقي الكود
-    if detail == "points":
-        # خصم 5 نقاط عند عرض الصفحة (مرة واحدة)
-        use_points(st.session_state.user_id)
-        st.info("ℹ️ 5 points ont été déduits pour cette consultation.")
-    
-    # ... باقي كود Prévision (الرسوم البيانية، التنبؤ، إلخ) ...
-        if "consommations" not in st.session_state or len(st.session_state["consommations"]) < 5:
-            st.warning("⚠️ Pas assez de données. Veuillez d'abord charger des données dans la page 'Données'.")
+    # Admin n'a pas besoin de points
+    if not is_admin_user(st.session_state.user_id):
+        access, detail = can_access_page(st.session_state.user_id)
+        if not access:
+            st.error(f"❌ Vous n'avez pas assez de points. Solde : {detail} points. (5 points requis)")
+            st.info("💡 Achetez un pack de points ou abonnez-vous pour un accès illimité.")
             st.stop()
-        consommations = st.session_state["consommations"]
-        temperature = st.session_state.get("temperature", 20.0)
-        vent = st.session_state.get("wind", 10.0)
-        lambda_panne = st.session_state.get("lambda_panne", 0.0001)
-        dates = pd.date_range(end=datetime.today(), periods=len(consommations), freq='D')
-        df = pd.DataFrame({"date": dates, "consommation": consommations, "temp": temperature, "vent": vent})
-        df.set_index("date", inplace=True)
-        st.subheader("📊 Votre consommation électrique récente")
-        st.line_chart(df["consommation"])
-        moyenne = df["consommation"].mean()
-        derniere = df["consommation"].iloc[-1]
-        if derniere > moyenne * 1.1:
-            tendance = "🔺 **en hausse** : vous consommez plus que d'habitude."
-        elif derniere < moyenne * 0.9:
-            tendance = "🔻 **en baisse** : vous consommez moins que d'habitude."
+        if detail == "points":
+            use_points(st.session_state.user_id)
+            st.info("ℹ️ 5 points ont été déduits pour cette consultation.")
+    
+    if "consommations" not in st.session_state or len(st.session_state["consommations"]) < 5:
+        st.warning("⚠️ Pas assez de données. Veuillez d'abord charger des données dans la page 'Données'.")
+        st.stop()
+    consommations = st.session_state["consommations"]
+    temperature = st.session_state.get("temperature", 20.0)
+    vent = st.session_state.get("wind", 10.0)
+    lambda_panne = st.session_state.get("lambda_panne", 0.0001)
+    dates = pd.date_range(end=datetime.today(), periods=len(consommations), freq='D')
+    df = pd.DataFrame({"date": dates, "consommation": consommations, "temp": temperature, "vent": vent})
+    df.set_index("date", inplace=True)
+    st.subheader("📊 Votre consommation électrique récente")
+    st.line_chart(df["consommation"])
+    moyenne = df["consommation"].mean()
+    derniere = df["consommation"].iloc[-1]
+    if derniere > moyenne * 1.1:
+        tendance = "🔺 **en hausse** : vous consommez plus que d'habitude."
+    elif derniere < moyenne * 0.9:
+        tendance = "🔻 **en baisse** : vous consommez moins que d'habitude."
+    else:
+        tendance = "➡️ **stable** : votre consommation est dans la normale."
+    st.info(f"📌 Tendance actuelle : {tendance}")
+    st.subheader("🔮 Prévision de votre consommation pour les prochains jours")
+    jours = st.slider("Nombre de jours à prévoir", 3, 14, 7)
+    try:
+        model = ARIMA(df["consommation"], order=(1,1,1))
+        model_fit = model.fit()
+        prevision = model_fit.forecast(steps=jours)
+        dates_futur = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=jours, freq='D')
+        df_prev = pd.DataFrame({"Date": dates_futur.strftime("%d/%m/%Y"), "Consommation prévue (kWh)": prevision.round(1)})
+        st.table(df_prev)
+        fig, ax = plt.subplots()
+        ax.plot(df.index, df["consommation"], label="Historique", color='blue')
+        ax.plot(dates_futur, prevision, label="Prévision", color='red', marker='o')
+        ax.set_title("Évolution de la consommation (réelle et prévue)")
+        ax.legend()
+        st.pyplot(fig)
+        variation = (prevision.iloc[-1] - df["consommation"].iloc[-1]) / df["consommation"].iloc[-1] * 100
+        if variation > 10:
+            st.warning(f"⚠️ Votre consommation devrait **augmenter de {variation:.1f}%** dans les {jours} jours.")
+        elif variation < -10:
+            st.success(f"✅ Bonne nouvelle : votre consommation devrait **baisser de {abs(variation):.1f}%**.")
         else:
-            tendance = "➡️ **stable** : votre consommation est dans la normale."
-        st.info(f"📌 Tendance actuelle : {tendance}")
-        st.subheader("🔮 Prévision de votre consommation pour les prochains jours")
-        jours = st.slider("Nombre de jours à prévoir", 3, 14, 7)
-        try:
-            from statsmodels.tsa.arima.model import ARIMA
-            model = ARIMA(df["consommation"], order=(1,1,1))
-            model_fit = model.fit()
-            prevision = model_fit.forecast(steps=jours)
-            dates_futur = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=jours, freq='D')
-            df_prev = pd.DataFrame({"Date": dates_futur.strftime("%d/%m/%Y"), "Consommation prévue (kWh)": prevision.round(1)})
-            st.table(df_prev)
-            fig, ax = plt.subplots()
-            ax.plot(df.index, df["consommation"], label="Historique", color='blue')
-            ax.plot(dates_futur, prevision, label="Prévision", color='red', marker='o')
-            ax.set_title("Évolution de la consommation (réelle et prévue)")
-            ax.legend()
-            st.pyplot(fig)
-            variation = (prevision.iloc[-1] - df["consommation"].iloc[-1]) / df["consommation"].iloc[-1] * 100
-            if variation > 10:
-                st.warning(f"⚠️ Votre consommation devrait **augmenter de {variation:.1f}%** dans les {jours} jours.")
-            elif variation < -10:
-                st.success(f"✅ Bonne nouvelle : votre consommation devrait **baisser de {abs(variation):.1f}%**.")
-            else:
-                st.info(f"📉 La consommation restera **stable** (variation de {variation:.1f}%).")
-        except Exception as e:
-            st.error(f"Erreur lors de la prévision ARIMA : {e}")
-        st.subheader("⚠️ Risque de coupure électrique dans les prochaines 24h")
-        if "historique_pannes" not in st.session_state:
-            dates_pannes = pd.date_range(start=datetime.today() - timedelta(days=60), periods=8, freq='7D')
-            st.session_state["historique_pannes"] = pd.DataFrame({"date": dates_pannes, "duree (min)": np.random.randint(10, 180, 8), "cause": np.random.choice(["Surcharge", "Tempête", "Équipement", "Foudre"], 8)})
-        df_pannes = st.session_state["historique_pannes"]
-        with st.expander("📋 Historique des dernières coupures"):
-            st.dataframe(df_pannes.tail(5))
-        conso_actuelle = df["consommation"].iloc[-1]
-        seuil_charge = df["consommation"].mean() * 1.2
-        charge_elevee = conso_actuelle > seuil_charge
-        conditions_meteo_risque = (temperature > 35) or (vent > 45)
-        pannes_recentes = df_pannes[df_pannes["date"] > datetime.today() - timedelta(days=30)]
-        proba_hist = len(pannes_recentes) / 30 if len(pannes_recentes) > 0 else 0.03
-        if charge_elevee and conditions_meteo_risque:
-            proba_risque = min(proba_hist * 4, 0.95)
-            message = "🔴 **Risque très élevé** : forte consommation + conditions météo défavorables."
-        elif charge_elevee or conditions_meteo_risque:
-            proba_risque = min(proba_hist * 2, 0.70)
-            message = "🟠 **Risque modéré** : soit la charge est élevée, soit la météo est mauvaise."
-        else:
-            proba_risque = proba_hist * 0.8
-            message = "🟢 **Risque faible** : situation normale."
-        proba_lambda = 1 - np.exp(-lambda_panne * 24)
-        proba_finale = 0.6 * proba_risque + 0.4 * proba_lambda
-        proba_finale = min(proba_finale, 0.99)
-        st.metric("📊 Probabilité de coupure dans les 24h", f"{proba_finale*100:.1f}%")
-        st.info(message)
-        st.subheader("💡 Que faire maintenant ?")
-        if proba_finale > 0.6:
-            st.error("**Actions recommandées :**\n- Réduisez immédiatement l'usage des appareils puissants.\n- Préparez un groupe électrogène.\n- Contactez votre fournisseur.")
-        elif proba_finale > 0.3:
-            st.warning("**Précautions :**\n- Surveillez votre consommation chaque heure.\n- Évitez de lancer plusieurs gros appareils en même temps.")
-        else:
-            st.success("**Situation stable :** vous pouvez travailler normalement.")
+            st.info(f"📉 La consommation restera **stable** (variation de {variation:.1f}%).")
+    except Exception as e:
+        st.error(f"Erreur lors de la prévision ARIMA : {e}")
+    st.subheader("⚠️ Risque de coupure électrique dans les prochaines 24h")
+    if "historique_pannes" not in st.session_state:
+        dates_pannes = pd.date_range(start=datetime.today() - timedelta(days=60), periods=8, freq='7D')
+        st.session_state["historique_pannes"] = pd.DataFrame({"date": dates_pannes, "duree (min)": np.random.randint(10, 180, 8), "cause": np.random.choice(["Surcharge", "Tempête", "Équipement", "Foudre"], 8)})
+    df_pannes = st.session_state["historique_pannes"]
+    with st.expander("📋 Historique des dernières coupures"):
+        st.dataframe(df_pannes.tail(5))
+    conso_actuelle = df["consommation"].iloc[-1]
+    seuil_charge = df["consommation"].mean() * 1.2
+    charge_elevee = conso_actuelle > seuil_charge
+    conditions_meteo_risque = (temperature > 35) or (vent > 45)
+    pannes_recentes = df_pannes[df_pannes["date"] > datetime.today() - timedelta(days=30)]
+    proba_hist = len(pannes_recentes) / 30 if len(pannes_recentes) > 0 else 0.03
+    if charge_elevee and conditions_meteo_risque:
+        proba_risque = min(proba_hist * 4, 0.95)
+        message = "🔴 **Risque très élevé** : forte consommation + conditions météo défavorables."
+    elif charge_elevee or conditions_meteo_risque:
+        proba_risque = min(proba_hist * 2, 0.70)
+        message = "🟠 **Risque modéré** : soit la charge est élevée, soit la météo est mauvaise."
+    else:
+        proba_risque = proba_hist * 0.8
+        message = "🟢 **Risque faible** : situation normale."
+    proba_lambda = 1 - np.exp(-lambda_panne * 24)
+    proba_finale = 0.6 * proba_risque + 0.4 * proba_lambda
+    proba_finale = min(proba_finale, 0.99)
+    st.metric("📊 Probabilité de coupure dans les 24h", f"{proba_finale*100:.1f}%")
+    st.info(message)
+    st.subheader("💡 Que faire maintenant ?")
+    if proba_finale > 0.6:
+        st.error("**Actions recommandées :**\n- Réduisez immédiatement l'usage des appareils puissants.\n- Préparez un groupe électrogène.\n- Contactez votre fournisseur.")
+    elif proba_finale > 0.3:
+        st.warning("**Précautions :**\n- Surveillez votre consommation chaque heure.\n- Évitez de lancer plusieurs gros appareils en même temps.")
+    else:
+        st.success("**Situation stable :** vous pouvez travailler normalement.")
 
-    # ========== PAGE RAPPORT ==========
+# ========== PAGE RAPPORT ==========
 elif menu == "Rapport":
-     st.title("📄 Rapport Intelligent - Analyse des Risques")
-     access, detail = can_access_page(st.session_state.user_id)
-     if not access:
+    st.title("📄 Rapport Intelligent - Analyse des Risques")
+    
+    if not is_admin_user(st.session_state.user_id):
+        access, detail = can_access_page(st.session_state.user_id)
+        if not access:
             st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
             st.stop()
+        if detail == "points":
+            use_points(st.session_state.user_id)
+            st.info("ℹ️ 5 points déduits pour ce rapport.")
     
-     if detail == "points":
-        use_points(st.session_state.user_id)
-        st.info("ℹ️ 5 points déduits pour ce rapport.")
-        if "risk_final" not in st.session_state:
-            st.warning("⚠️ Veuillez d'abord effectuer l'analyse du risque dans la page 'Analyse'.")
-            st.stop()
-        risk_percent = float(st.session_state.get("risk_final", 50.0))
-        P_A = float(st.session_state.get("P_A", 0.2))
-        P_B = float(st.session_state.get("P_B", 0.2))
-        P_C = float(st.session_state.get("P_C", 0.2))
-        if risk_percent < 40:
-            niveau = "🟢 Faible"
-            zone = "Zone Verte – Exploitation normale"
-            couleur = "success"
-        elif risk_percent < 70:
-            niveau = "🟠 Moyen"
-            zone = "Zone Orange – Surveillance renforcée"
-            couleur = "warning"
-        else:
-            niveau = "🔴 Élevé"
-            zone = "Zone Rouge – Risque critique"
-            couleur = "error"
-        st.subheader("📌 1. Résumé exécutif")
-        resume = f"Le niveau global de risque du réseau électrique est estimé à **{risk_percent:.1f}%**, ce qui correspond à un niveau **{niveau}**. Cette évaluation combine : - Probabilité de surcharge (P_A = {P_A*100:.1f}%) - Probabilité de panne (P_B = {P_B*100:.1f}%) - Impact météo (P_C = {P_C*100:.1f}%)"
-        st.info(resume)
-        st.subheader("⚠️ 2. Degré de criticité du réseau")
-        if couleur == "success":
-            st.success(zone)
-        elif couleur == "warning":
-            st.warning(zone)
-        else:
-            st.error(zone)
-        st.subheader("🔧 3. Impact technique sur les équipements")
-        impact_text = "- **Transformateurs** : Risque d'échauffement thermique accru.\n- **Lignes électriques** : Dilatation des conducteurs.\n- **Protections** : Possibilité de déclenchement intempestif.\n- **Continuité de service** : Probabilité d'interruption augmentée."
-        st.write(impact_text)
-        st.subheader("📊 4. Analyse des facteurs de risque")
-        facteurs = {"Surcharge": P_A, "Fiabilité": P_B, "Météo": P_C}
-        dominant = max(facteurs, key=facteurs.get)
-        st.write(f"**Facteur dominant** : **{dominant}** (probabilité = {facteurs[dominant]*100:.1f}%)")
-        fig, ax = plt.subplots()
-        ax.bar(["Surcharge", "Fiabilité", "Météo"], [P_A, P_B, P_C], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
-        ax.set_ylabel("Probabilité")
-        ax.set_title("Comparaison des facteurs de risque")
-        ax.set_ylim(0, 1)
-        for i, v in enumerate([P_A, P_B, P_C]):
-            ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center')
-        st.pyplot(fig)
-        st.subheader("🔮 5. Scénarios prospectifs")
-        st.write(f"- **Scénario 1 – Maintien tendance actuelle** : risque autour de {risk_percent:.1f}%.\n- **Scénario 2 – Maintenance préventive** : réduction du risque.\n- **Scénario 3 – Capacités solaires/batteries** : baisse du risque de surcharge.")
-        st.subheader("🛠️ 6. Décision d'ingénierie recommandée")
-        if dominant == "Surcharge":
-            decision_text = "Intervention ciblée sur la surcharge : installer une solution de peak shaving (solaire + batteries), renforcer la capacité du transformateur."
-        elif dominant == "Fiabilité":
-            decision_text = "Intervention ciblée sur la fiabilité : maintenance préventive systématique, installation de redondance (UPS, groupes électrogènes)."
-        else:
-            decision_text = "Intervention ciblée sur le climat : améliorer la ventilation des locaux techniques, surveiller les prévisions météo."
-        st.write(decision_text)
-        st.subheader("📑 7. Exporter le rapport")
-        if st.button("Générer le rapport technique (PDF)"):
-            try:
-                pdf_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                doc = SimpleDocTemplate(pdf_file.name, pagesize=A4)
-                elements = []
-                styles = getSampleStyleSheet()
-                elements.append(Paragraph("PowerRisk – Rapport Technique d'Évaluation du Risque", styles["Title"]))
-                elements.append(Spacer(1, 20))
-                elements.append(Paragraph(resume, styles["Normal"]))
-                elements.append(Spacer(1, 20))
-                elements.append(Paragraph(f"**{zone}**", styles["Normal"]))
-                elements.append(Spacer(1, 20))
-                elements.append(Paragraph("Impact Technique :", styles["Heading2"]))
-                elements.append(Paragraph(impact_text, styles["Normal"]))
-                elements.append(Spacer(1, 20))
-                elements.append(Paragraph(f"Facteur dominant : {dominant}", styles["Normal"]))
-                elements.append(Paragraph(decision_text, styles["Normal"]))
-                doc.build(elements)
-                with open(pdf_file.name, "rb") as f:
-                    st.download_button(label="Télécharger le rapport (PDF)", data=f, file_name="PowerRisk_Rapport.pdf", mime="application/pdf")
-                os.unlink(pdf_file.name)
-            except Exception as e:
-                st.error(f"Erreur lors de la génération du PDF : {e}")
-
-# =========================================================
-# PAGE SOLUTIONS (Version Complète avec Chatbot IA)
-# =========================================================
-# =========================================================
-# PAGE SOLUTIONS (Version avec clé API intégrée - sans saisie)
-# =========================================================
+    if "risk_final" not in st.session_state:
+        st.warning("⚠️ Veuillez d'abord effectuer l'analyse du risque dans la page 'Analyse'.")
+        st.stop()
+    risk_percent = float(st.session_state.get("risk_final", 50.0))
+    P_A = float(st.session_state.get("P_A", 0.2))
+    P_B = float(st.session_state.get("P_B", 0.2))
+    P_C = float(st.session_state.get("P_C", 0.2))
+    if risk_percent < 40:
+        niveau = "🟢 Faible"
+        zone = "Zone Verte – Exploitation normale"
+        couleur = "success"
+    elif risk_percent < 70:
+        niveau = "🟠 Moyen"
+        zone = "Zone Orange – Surveillance renforcée"
+        couleur = "warning"
+    else:
+        niveau = "🔴 Élevé"
+        zone = "Zone Rouge – Risque critique"
+        couleur = "error"
+    st.subheader("📌 1. Résumé exécutif")
+    resume = f"Le niveau global de risque du réseau électrique est estimé à **{risk_percent:.1f}%**, ce qui correspond à un niveau **{niveau}**. Cette évaluation combine : - Probabilité de surcharge (P_A = {P_A*100:.1f}%) - Probabilité de panne (P_B = {P_B*100:.1f}%) - Impact météo (P_C = {P_C*100:.1f}%)"
+    st.info(resume)
+    st.subheader("⚠️ 2. Degré de criticité du réseau")
+    if couleur == "success":
+        st.success(zone)
+    elif couleur == "warning":
+        st.warning(zone)
+    else:
+        st.error(zone)
+    st.subheader("🔧 3. Impact technique sur les équipements")
+    impact_text = "- **Transformateurs** : Risque d'échauffement thermique accru.\n- **Lignes électriques** : Dilatation des conducteurs.\n- **Protections** : Possibilité de déclenchement intempestif.\n- **Continuité de service** : Probabilité d'interruption augmentée."
+    st.write(impact_text)
+    st.subheader("📊 4. Analyse des facteurs de risque")
+    facteurs = {"Surcharge": P_A, "Fiabilité": P_B, "Météo": P_C}
+    dominant = max(facteurs, key=facteurs.get)
+    st.write(f"**Facteur dominant** : **{dominant}** (probabilité = {facteurs[dominant]*100:.1f}%)")
+    fig, ax = plt.subplots()
+    ax.bar(["Surcharge", "Fiabilité", "Météo"], [P_A, P_B, P_C], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+    ax.set_ylabel("Probabilité")
+    ax.set_title("Comparaison des facteurs de risque")
+    ax.set_ylim(0, 1)
+    for i, v in enumerate([P_A, P_B, P_C]):
+        ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center')
+    st.pyplot(fig)
+    st.subheader("🔮 5. Scénarios prospectifs")
+    st.write(f"- **Scénario 1 – Maintien tendance actuelle** : risque autour de {risk_percent:.1f}%.\n- **Scénario 2 – Maintenance préventive** : réduction du risque.\n- **Scénario 3 – Capacités solaires/batteries** : baisse du risque de surcharge.")
+    st.subheader("🛠️ 6. Décision d'ingénierie recommandée")
+    if dominant == "Surcharge":
+        decision_text = "Intervention ciblée sur la surcharge : installer une solution de peak shaving (solaire + batteries), renforcer la capacité du transformateur."
+    elif dominant == "Fiabilité":
+        decision_text = "Intervention ciblée sur la fiabilité : maintenance préventive systématique, installation de redondance (UPS, groupes électrogènes)."
+    else:
+        decision_text = "Intervention ciblée sur le climat : améliorer la ventilation des locaux techniques, surveiller les prévisions météo."
+    st.write(decision_text)
+    st.subheader("📑 7. Exporter le rapport")
+    if st.button("Générer le rapport technique (PDF)"):
+        try:
+            pdf_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            doc = SimpleDocTemplate(pdf_file.name, pagesize=A4)
+            elements = []
+            styles = getSampleStyleSheet()
+            elements.append(Paragraph("PowerRisk – Rapport Technique d'Évaluation du Risque", styles["Title"]))
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph(resume, styles["Normal"]))
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph(f"**{zone}**", styles["Normal"]))
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph("Impact Technique :", styles["Heading2"]))
+            elements.append(Paragraph(impact_text, styles["Normal"]))
+            elements.append(Spacer(1, 20))
+            elements.append(Paragraph(f"Facteur dominant : {dominant}", styles["Normal"]))
+            elements.append(Paragraph(decision_text, styles["Normal"]))
+            doc.build(elements)
+            with open(pdf_file.name, "rb") as f:
+                st.download_button(label="Télécharger le rapport (PDF)", data=f, file_name="PowerRisk_Rapport.pdf", mime="application/pdf")
+            os.unlink(pdf_file.name)
+        except Exception as e:
+            st.error(f"Erreur lors de la génération du PDF : {e}")
+# ========== PAGE SOLUTIONS ==========
 elif menu == "Solutions":
     st.title("🛠 Solutions Recommandées - Analyse & Décision")
     
-    access, detail = can_access_page(st.session_state.user_id)
-    if not access:
-        st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
-        st.stop()
-    
-    if detail == "points":
-        use_points(st.session_state.user_id)
-        st.info("ℹ️ 5 points déduits pour accéder aux solutions.")
+    if not is_admin_user(st.session_state.user_id):
+        access, detail = can_access_page(st.session_state.user_id)
+        if not access:
+            st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
+            st.stop()
+        if detail == "points":
+            use_points(st.session_state.user_id)
+            st.info("ℹ️ 5 points déduits pour accéder aux solutions.")
     
     def calcul_van_roi(investissement, flux_annuel, taux, annees):
         if investissement <= 0:
@@ -1155,7 +1142,6 @@ elif menu == "Solutions":
             taux_actualisation = st.slider("📉 Taux d'actualisation (%)", 0, 15, 8) / 100.0
             duree_projet = st.slider("📅 Durée du projet (années)", 5, 25, 15)
         
-        # Solution Solaire
         with st.expander("☀️ Solution 1 : Solaire photovoltaïque"):
             irradiation = st.number_input("☀️ Ensoleillement (kWh/m²/jour)", 2.0, 7.0, 5.0, 0.1)
             panel_power = st.selectbox("Puissance crête par panneau (Wc)", [400, 450, 500, 550], index=2)
@@ -1168,7 +1154,6 @@ elif menu == "Solutions":
             econ_annuelle_solaire = prod_annuelle_kwh * prix_kwh
             VAN_solaire, ROI_solaire = calcul_van_roi(invest_solaire, econ_annuelle_solaire, taux_actualisation, duree_projet)
         
-        # Solution Batterie
         with st.expander("🔋 Solution 2 : Batterie de stockage"):
             cout_batterie_par_kwh = st.number_input("💰 Coût batterie (DZD/kWh utile)", 30000, 150000, 70000)
             duree_vie_batterie = st.slider("🔋 Durée de vie batterie (ans)", 5, 15, 10)
@@ -1178,7 +1163,6 @@ elif menu == "Solutions":
             econ_annuelle_batterie = target_energy_kwh * prix_kwh * 365
             VAN_batterie, ROI_batterie = calcul_van_roi(invest_batterie, econ_annuelle_batterie, taux_actualisation, min(duree_projet, duree_vie_batterie))
         
-        # Solution Hybride
         with st.expander("⚡ Solution 3 : Système hybride (Solaire + Batterie)"):
             part_solaire = st.slider("Part solaire (%)", 0, 100, 60) / 100.0
             part_batterie = 1 - part_solaire
@@ -1192,7 +1176,6 @@ elif menu == "Solutions":
             econ_annuelle_hybride = (energie_solaire + energie_batterie) * prix_kwh * 365
             VAN_hybride, ROI_hybride = calcul_van_roi(invest_hybride, econ_annuelle_hybride, taux_actualisation, duree_projet)
         
-        # Tableau comparatif
         st.subheader("📊 Comparaison des solutions")
         df_comparaison = pd.DataFrame({
             "Solution": ["Solaire", "Batterie", "Hybride"],
@@ -1209,7 +1192,6 @@ elif menu == "Solutions":
         meilleure = df_comparaison.loc[df_comparaison["VAN (DZD)"].idxmax()]
         st.success(f"🏆 **Solution la plus rentable** : {meilleure['Solution']} avec une VAN de {meilleure['VAN (DZD)']:,} DZD et un ROI de {meilleure['ROI (années)']} ans.")
         
-        # Optimisation temporelle
         st.header("⏰ 3. Optimisation temporelle (Time-of-Use)")
         if "consommation_horaire" not in st.session_state:
             heures = list(range(24))
@@ -1228,7 +1210,6 @@ elif menu == "Solutions":
         st.warning(f"⏳ Heures de pointe détectées : {heures_pointe}")
         st.info("💡 **Recommandation dynamique** : Déplacez les processus énergivores vers les heures creuses (ex: 22h-6h). Utilisez un programmateur ou un EMS.")
         
-        # Chatbot IA Gemini
         st.header("🤖 4. Assistant IA - Posez vos questions")
         GEMINI_API_KEY = "AIzaSyA6OEjzOfg5LxOS4Nb9XWF174SZvvOGTTk" # Remplacez par votre clé
         if "chat_open" not in st.session_state:
@@ -1282,7 +1263,6 @@ elif menu == "Solutions":
                         st.session_state.messages = []
                         st.rerun()
     
-    # Plan d'action final (s'affiche toujours, que target_energy_kwh soit >0 ou non)
     st.header("✅ Plan d'action prioritaire")
     facteurs = {"Surcharge": P_A, "Fiabilité": P_B, "Météo": P_C}
     dominant = max(facteurs, key=facteurs.get)
@@ -1294,4 +1274,124 @@ elif menu == "Solutions":
         st.warning("Priorité : **Renforcement face au climat** (ventilation, isolation, stockage).")
     st.write("---")
     st.caption("Analyse générée par PowerRisk – recommandations basées sur les données et l'intelligence artificielle.")
+# ========== PAGE ADMIN ==========
+elif menu == "Admin" and is_admin_user(st.session_state.user_id):
+    st.title("👑 Administration - PowerRisk")
+    st.markdown("Bienvenue, administrateur. Vous avez un accès illimité à toutes les fonctionnalités.")
+    
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Dashboard", "👥 Utilisateurs", "⚠️ Risques", "🤖 IA", "💰 Abonnements", "📢 Notifications"
+    ])
+    
+    with tab1:
+        st.subheader("📊 Statistiques générales")
+        total_users = users_col.count_documents({})
+        total_admins = users_col.count_documents({"is_admin": 1})
+        total_premium = subscriptions_col.count_documents({"plan": {"$in": ["MONTHLY", "YEARLY"]}})
+        total_points_used = sum(p.get("used_points", 0) for p in points_col.find())
+        total_analyses = len(list(entreprises_col.find()))
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("👥 Utilisateurs", total_users)
+        col2.metric("👑 Admins", total_admins)
+        col3.metric("⭐ Premium", total_premium)
+        col4.metric("📊 Analyses effectuées", total_analyses)
+        st.metric("🎯 Points consommés (total)", total_points_used)
+        
+        st.subheader("Évolution des inscriptions (simulation)")
+        dates = pd.date_range(end=datetime.today(), periods=6, freq='M')
+        users_per_month = np.random.randint(5, 30, size=6)
+        fig, ax = plt.subplots()
+        ax.plot(dates, users_per_month, marker='o')
+        ax.set_title("Nouveaux utilisateurs par mois")
+        st.pyplot(fig)
+    
+    with tab2:
+        st.subheader("👥 Gestion des utilisateurs")
+        users = list(users_col.find())
+        for user in users:
+            with st.expander(f"📧 {user['email']} - {user.get('nom_complet', 'Nom inconnu')}"):
+                col_a, col_b, col_c = st.columns([2, 1, 1])
+                with col_a:
+                    st.write(f"**ID:** {user['_id']}")
+                    st.write(f"**Admin:** {'✅ Oui' if user.get('is_admin') else '❌ Non'}")
+                    st.write(f"**Vérifié:** {'✅' if user.get('is_verified') else '❌'}")
+                    pts = points_col.find_one({"user_id": user['_id']})
+                    if pts:
+                        st.write(f"**Points restants:** {pts['total_points'] - pts.get('used_points',0)}")
+                with col_b:
+                    if not user.get('is_admin'):
+                        if st.button("⭐ Promouvoir admin", key=f"promote_{user['_id']}"):
+                            users_col.update_one({"_id": user['_id']}, {"$set": {"is_admin": 1}})
+                            st.success(f"{user['email']} est maintenant admin")
+                            st.rerun()
+                    else:
+                        if st.button("⬇️ Rétrograder", key=f"demote_{user['_id']}"):
+                            users_col.update_one({"_id": user['_id']}, {"$set": {"is_admin": 0}})
+                            st.success(f"{user['email']} n'est plus admin")
+                            st.rerun()
+                with col_c:
+                    if st.button("🗑️ Supprimer", key=f"delete_{user['_id']}"):
+                        users_col.delete_one({"_id": user['_id']})
+                        entreprises_col.delete_many({"user_id": user['_id']})
+                        points_col.delete_many({"user_id": user['_id']})
+                        subscriptions_col.delete_many({"user_id": user['_id']})
+                        st.success(f"Utilisateur {user['email']} supprimé")
+                        st.rerun()
+    
+    with tab3:
+        st.subheader("⚠️ Surveillance des risques")
+        st.info("Les utilisateurs avec un risque élevé seront listés ici (simulation).")
+        data_risque = {
+            "Utilisateur": ["client1@mail.com", "client2@mail.com", "client3@mail.com"],
+            "Risque (%)": [85, 72, 45],
+            "Dernière analyse": ["2025-04-10", "2025-04-09", "2025-04-08"]
+        }
+        df_risque = pd.DataFrame(data_risque)
+        st.dataframe(df_risque)
+        if st.button("📧 Envoyer une alerte aux utilisateurs à risque"):
+            st.success("Alerte envoyée (simulation)")
+    
+    with tab4:
+        st.subheader("🤖 Contrôle des modèles IA")
+        st.info("Paramètres des modèles de prévision et d'analyse.")
+        st.write("**Modèle ARIMA:** ordre (1,1,1)")
+        new_order = st.text_input("Nouvel ordre ARIMA (p,d,q)", "1,1,1")
+        if st.button("Appliquer nouvel ordre"):
+            st.success(f"Ordre ARIMA mis à jour : {new_order} (simulation)")
+        st.write("**Modèle météo (Logistic Regression):** entraîné sur données simulées")
+        if st.button("Ré-entraîner le modèle météo"):
+            X_train = np.array([[25,10],[30,20],[35,30],[40,40],[45,60],[42,70]])
+            y_train = np.array([0,0,1,1,1,1])
+            model_weather = LogisticRegression()
+            model_weather.fit(X_train, y_train)
+            st.session_state["weather_model"] = model_weather
+            st.success("Modèle météo ré-entraîné")
+    
+    with tab5:
+        st.subheader("💰 Abonnements")
+        total_subscriptions = subscriptions_col.count_documents({})
+        st.write(f"Nombre total d'abonnements : {total_subscriptions}")
+        plans = subscriptions_col.aggregate([
+            {"$group": {"_id": "$plan", "count": {"$sum": 1}}}
+        ])
+        st.write("**Répartition des plans :**")
+        for p in plans:
+            st.write(f"- {p['_id']} : {p['count']} utilisateurs")
+        st.subheader("Modifier les tarifs")
+        new_monthly = st.number_input("Prix mensuel (DZD)", value=1000)
+        new_yearly = st.number_input("Prix annuel (DZD)", value=6000)
+        if st.button("Enregistrer nouveaux tarifs"):
+            st.success(f"Nouveaux tarifs : {new_monthly} DZD/mois, {new_yearly} DZD/an (simulation)")
+    
+    with tab6:
+        st.subheader("📢 Envoi de notifications")
+        notification_msg = st.text_area("Message à envoyer à tous les utilisateurs")
+        if st.button("Envoyer la notification"):
+            if notification_msg:
+                st.success("Notification envoyée à tous les utilisateurs (simulation)")
+            else:
+                st.warning("Veuillez entrer un message")
+
+
 
