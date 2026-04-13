@@ -578,32 +578,32 @@ if menu == "Accueil":
         {
             "nom": "ÉlecTech Algérie",
             "ville": "Alger",
-            "telephone": "0550 12 34 56",
-            "site": "www.electech.dz"
+            "telephone": "05** ** ** **",
+            "site": "www.ele***.dz"
         },
         {
             "nom": "PowerCare Solutions",
             "ville": "Oran",
-            "telephone": "0551 23 45 67",
-            "site": "www.powercare.dz"
+            "telephone": "05** ** ** **",
+            "site": "www.powe***.dz"
         },
         {
             "nom": "Maintenance Plus",
             "ville": "Constantine",
-            "telephone": "0552 34 56 78",
-            "site": "www.maintenanceplus.dz"
+            "telephone": "05** ** ** **",
+            "site": "www.maint***.dz"
         },
         {
             "nom": "Sécurité Élec",
             "ville": "Sétif",
-            "telephone": "0553 45 67 89",
-            "site": "www.securiteelec.dz"
+            "telephone": "05** ** ** **",
+            "site": "www.secur***.dz"
         },
         {
             "nom": "Énergie Service",
             "ville": "Annaba",
-            "telephone": "0554 56 78 90",
-            "site": "www.energieservice.dz"
+            "telephone": "05** ** ** **",
+            "site": "www.energ***.dz"
         }
     ]
     
@@ -626,11 +626,11 @@ if menu == "Accueil":
     col_contact1, col_contact2 = st.columns(2)
     with col_contact1:
         st.subheader("📧 Email")
-        st.markdown("**powerrisk@contact.dz**")
+        st.markdown("**powerrisk22@gmail.com")
         st.caption("Réponse sous 24h ouvrées")
     with col_contact2:
         st.subheader("📞 Téléphone / WhatsApp")
-        st.markdown("**+213 5XX XX XX XX**")
+        st.markdown("**+213 7XX XX XX XX**")
         st.caption("Du dimanche au jeudi, 9h - 17h")
     
     st.info("💡 Vous pouvez également utiliser le **chatbot** dans la page 'Solutions' pour une assistance instantanée.")
