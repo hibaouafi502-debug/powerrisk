@@ -1299,7 +1299,7 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
         st.metric("🎯 Points consommés (total)", total_points_used)
         
         st.subheader("Évolution des inscriptions (simulation)")
-        dates = pd.date_range(end=datetime.today(), periods=6, freq='M')
+        dates = pd.date_range(end=datetime.today(), periods=6, freq='MS')
         users_per_month = np.random.randint(5, 30, size=6)
         fig, ax = plt.subplots()
         ax.plot(dates, users_per_month, marker='o')
