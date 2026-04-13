@@ -330,7 +330,7 @@ def get_weather_forecast(lat, lon):
 # INTERFACE PRINCIPALE
 # =========================================================
 st.set_page_config(page_title="PowerRisk", layout="wide")
-st.title("PowerRisk - Gestion Intelligente des Risques Électriques")
+st.title("Power Risk")
 col_logo1, col_logo2 = st.columns([1, 5])
 with col_logo1:
     st.image("Logo.jpg", width=150) 
