@@ -331,6 +331,11 @@ def get_weather_forecast(lat, lon):
 # =========================================================
 st.set_page_config(page_title="PowerRisk", layout="wide")
 st.title("🔐 PowerRisk - Gestion Intelligente des Risques Électriques")
+col_logo1, col_logo2 = st.columns([1, 5])
+with col_logo1:
+    st.image("Logo.jpg", width=100) 
+with col_logo2:
+    st.markdown("") 
 
 # Initialisation session_state
 if "user_id" not in st.session_state:
@@ -462,7 +467,7 @@ if st.session_state.user_id:
 
 # ========== PAGE ACCUEIL ==========
 # ========== PAGE ACCUEIL ==========
- if menu == "Accueil":
+if menu == "Accueil":
     st.title("⚡ PowerRisk")
     st.subheader("Plateforme de gestion et d'analyse des données électriques")
 
@@ -571,7 +576,7 @@ if st.session_state.user_id:
 
 
     # ========== PAGE DONNÉES ==========
- elif menu == "Données":
+elif menu == "Données":
     st.title("📁 Gestion des Données Industrielles")
     st.subheader("🌤️ Conditions météo actuelles")
     if "lat" not in st.session_state:
