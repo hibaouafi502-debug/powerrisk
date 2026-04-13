@@ -471,6 +471,7 @@ if st.session_state.user_id:
     """, unsafe_allow_html=True)
 
 # ========== PAGE ACCUEIL ==========
+# ========== PAGE ACCUEIL ==========
 if menu == "Accueil":
     st.title("⚡ PowerRisk")
     st.subheader("Plateforme de gestion et d'analyse des données électriques")
@@ -509,6 +510,7 @@ if menu == "Accueil":
 
     """)
 
+    # Affichage des offres en colonnes
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -517,6 +519,7 @@ if menu == "Accueil":
         st.caption("+20 points (4 utilisations)")
         if st.button("Acheter 20 points", key="buy_points"):
             try:
+                from bson.objectid import ObjectId
                 points_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$inc": {"total_points": 20}}
@@ -532,6 +535,8 @@ if menu == "Accueil":
         st.caption("Accès illimité (Prévision, Rapport, Solutions)")
         if st.button("S'abonner mensuel", key="subscribe_monthly"):
             try:
+                from datetime import datetime, timedelta
+                from bson.objectid import ObjectId
                 subscriptions_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$set": {"plan": "MONTHLY", "expiry_date": datetime.now() + timedelta(days=30)}}
@@ -547,6 +552,8 @@ if menu == "Accueil":
         st.caption("Économie de 6 000 DZD par rapport au mensuel")
         if st.button("S'abonner annuel", key="subscribe_yearly"):
             try:
+                from datetime import datetime, timedelta
+                from bson.objectid import ObjectId
                 subscriptions_col.update_one(
                     {"user_id": ObjectId(st.session_state.user_id)},
                     {"$set": {"plan": "YEARLY", "expiry_date": datetime.now() + timedelta(days=365)}}
@@ -556,17 +563,79 @@ if menu == "Accueil":
             except Exception as e:
                 st.error(f"Erreur : {e}")
 
+    # ========== NOUVEAU : SERVICE DE MAINTENANCE ÉLECTRIQUE ==========
+    st.markdown("---")
+    st.header("🔧 Service de maintenance électrique")
     st.markdown("""
-    ---
-    ## 💬 4. Assistant intégré (chatbot)
-
-    Dans la page **"Solutions"**, un chatbot est à votre disposition.
-
-    ---
-    ## 🚀 5. Pour commencer
-
-    👉 Sélectionnez **"Données"** dans le menu latéral.
+    PowerRisk vous met en relation avec des **entreprises de maintenance électrique** proches de votre localisation.
+    Que ce soit pour une intervention urgente, une vérification périodique ou une installation, nous vous aidons à trouver le bon partenaire.
     """)
+
+    st.subheader("📋 Nos partenaires de maintenance (exemples)")
+    
+    # Liste fictive de sociétés de maintenance (à remplacer par de vrais partenaires plus tard)
+    maintenance_companies = [
+        {
+            "nom": "ÉlecTech Algérie",
+            "ville": "Alger",
+            "telephone": "0550 12 34 56",
+            "site": "www.electech.dz"
+        },
+        {
+            "nom": "PowerCare Solutions",
+            "ville": "Oran",
+            "telephone": "0551 23 45 67",
+            "site": "www.powercare.dz"
+        },
+        {
+            "nom": "Maintenance Plus",
+            "ville": "Constantine",
+            "telephone": "0552 34 56 78",
+            "site": "www.maintenanceplus.dz"
+        },
+        {
+            "nom": "Sécurité Élec",
+            "ville": "Sétif",
+            "telephone": "0553 45 67 89",
+            "site": "www.securiteelec.dz"
+        },
+        {
+            "nom": "Énergie Service",
+            "ville": "Annaba",
+            "telephone": "0554 56 78 90",
+            "site": "www.energieservice.dz"
+        }
+    ]
+    
+    # Affichage sous forme d'expandeur
+    for company in maintenance_companies:
+        with st.expander(f"🏢 {company['nom']} - {company['ville']}"):
+            st.write(f"📞 Téléphone : {company['telephone']}")
+            st.write(f"🌐 Site web : {company['site']}")
+    
+    st.caption("⚠️ Ces sociétés sont présentées à titre d'exemple. Contactez-nous pour devenir partenaire.")
+
+    # ========== CONTACTEZ-NOUS ==========
+    st.markdown("---")
+    st.header("📞 Contactez PowerRisk")
+    st.markdown("""
+    Vous avez une question, une suggestion ou vous souhaitez devenir partenaire ?  
+    Notre équipe est à votre disposition.
+    """)
+    
+    col_contact1, col_contact2 = st.columns(2)
+    with col_contact1:
+        st.subheader("📧 Email")
+        st.markdown("**powerrisk@contact.dz**")
+        st.caption("Réponse sous 24h ouvrées")
+    with col_contact2:
+        st.subheader("📞 Téléphone / WhatsApp")
+        st.markdown("**+213 5XX XX XX XX**")
+        st.caption("Du dimanche au jeudi, 9h - 17h")
+    
+    st.info("💡 Vous pouvez également utiliser le **chatbot** dans la page 'Solutions' pour une assistance instantanée.")
+
+    # ========== FIN DES AJOUTS ==========
 
     st.success("✅ PowerRisk – Plateforme claire, intuitive et professionnelle.")
     st.info("💡 Besoin d’aide ? Utilisez le chatbot dans la page 'Solutions'.")
