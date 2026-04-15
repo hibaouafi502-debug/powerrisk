@@ -700,6 +700,7 @@ elif menu == "Données":
         "🔵 MT - Compteurs intelligents (CSV)",
         "🔌 Compteur intelligent (API)",
         "📡 Arduino + Capteur"
+        "🔵 Compteur intelligent (données quotidiennes réalistes)"
     ])
     if data_mode == "🟢 Mode Simulation":
         if st.button("Générer données"):
