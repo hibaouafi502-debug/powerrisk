@@ -862,7 +862,48 @@ elif menu == "Données":
                     st.error(f"Erreur lors de l'appel API : {e}")
             else:
                 st.error("Veuillez entrer une URL API valide.")
-
+    elif data_mode == "🔵 Compteur intelligent (données quotidiennes réalistes)":
+        st.info("📡 Simulation d’un compteur intelligent produisant des données quotidiennes avec tendance et saisonnalité.")
+        jours = st.slider("Nombre de jours à générer", 30, 180, 90)
+        if st.button("Générer données compteur intelligent"):
+            # Générer des données réalistes pour LSTM
+            dates = pd.date_range(end=datetime.today(), periods=jours, freq='D')
+            
+            # Tendance linéaire (augmentation lente)
+            trend = np.linspace(200, 280, jours)
+            # Saisonnalité hebdomadaire (cycle de 7 jours)
+            weekly = 20 * np.sin(2 * np.pi * np.arange(jours) / 7)
+            # Bruit réaliste
+            noise = np.random.normal(0, 8, jours)
+            # Consommation finale
+            consommations = (trend + weekly + noise).tolist()
+            
+            # Tension et courant
+            voltage = float(np.random.normal(220, 2))
+            current = float(np.random.normal(30, 3))
+            
+            # Simuler des pannes (une par semaine environ)
+            nb_pannes = max(1, int(jours / 7) + np.random.randint(-1, 2))
+            dates_pannes = pd.date_range(end=datetime.today(), periods=nb_pannes, freq='7D')
+            st.session_state["historique_pannes_sim"] = pd.DataFrame({
+                "date": dates_pannes,
+                "duree (min)": np.random.randint(15, 120, nb_pannes),
+                "cause": np.random.choice(["Surcharge", "Tempête", "Équipement"], nb_pannes)
+            })
+            lambda_calculee = nb_pannes / (jours * 24)
+            
+            # Sauvegarde
+            st.session_state.consommations = consommations
+            st.session_state.voltage = voltage
+            st.session_state.current = current
+            st.session_state.lambda_panne = lambda_calculee
+            # Métadonnées pour LSTM
+            st.session_state.data_source = "smart_meter_sim"
+            st.session_state.data_freq = "D"
+            st.session_state.is_random = False
+            
+            st.success(f"✅ Données compteur intelligent générées ({jours} jours) avec {nb_pannes} pannes simulées.")
+            
     if st.session_state.consommations:
         st.subheader("📊 Aperçu des données actuelles")
         st.line_chart(st.session_state.consommations)
