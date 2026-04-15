@@ -309,6 +309,52 @@ def extract_electricity_from_pdf(pdf_file):
         return None
 
 # =========================================================
+# LSTM MODEL (pour compteur intelligent)
+# =========================================================
+try:
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+
+def predict_lstm(series, steps=7, lookback=14):
+    """Prédiction avec LSTM pour données quotidiennes (90+ jours)"""
+    if not TENSORFLOW_AVAILABLE or len(series) < 90:
+        return None # fallback vers ARIMA/SARIMA
+    
+    # Préparer les données
+    data = series.values.reshape(-1, 1)
+    X, y = [], []
+    for i in range(lookback, len(data) - steps + 1):
+        X.append(data[i-lookback:i, 0])
+        y.append(data[i:i+steps, 0])
+    X = np.array(X).reshape(-1, lookback, 1)
+    y = np.array(y)
+    
+    if len(X) == 0:
+        return None
+    
+    # Construire le modèle LSTM
+    model = Sequential([
+        LSTM(50, activation='relu', return_sequences=True, input_shape=(lookback, 1)),
+        Dropout(0.2),
+        LSTM(50, activation='relu'),
+        Dropout(0.2),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    model.fit(X, y, epochs=30, batch_size=8, verbose=0)
+    
+    # Prédiction itérative
+    last_seq = data[-lookback:].reshape(1, lookback, 1)
+    predictions = []
+    for _ in range(steps):
+        pred = model.predict(last_seq, verbose=0)[0, 0]
+        predictions.append(pred)
+        last_seq = np.append(last_seq[0, 1:, 0], pred).reshape(1, lookback, 1)
+    return np.array(predictions)
+# =========================================================
 # WEATHER
 # =========================================================
 @st.cache_data
@@ -1047,90 +1093,132 @@ elif menu == "Analyse":
 # ========== PAGE PRÉVISION ==========
 elif menu == "Prévision":
     st.title("⚡ Prévision intelligente de la consommation et des coupures")
-    
-    # Admin n'a pas besoin de points
+
+    # ---------- Vérification admin / points ----------
     if not is_admin_user(st.session_state.user_id):
         access, detail = can_access_page(st.session_state.user_id)
         if not access:
             st.error(f"❌ Vous n'avez pas assez de points. Solde : {detail} points. (5 points requis)")
-            st.info("💡 Achetez un pack de points ou abonnez-vous pour un accès illimité.")
+            st.info("💡 Achetez un pack de points ou abonnez-vous.")
             st.stop()
         if detail == "points":
             use_points(st.session_state.user_id)
-            st.info("ℹ️ 5 points ont été déduits pour cette consultation.")
-    
-    if "consommations" not in st.session_state or len(st.session_state["consommations"]) < 5:
-        st.warning("⚠️ Pas assez de données. Veuillez d'abord charger des données dans la page 'Données'.")
-        st.stop()
-    consommations = st.session_state["consommations"]
+            st.info("ℹ️ 5 points déduits pour cette consultation.")
+
+    # ---------- Récupération des données ----------
+    consommations = st.session_state.get("consommations", [])
+    data_source = st.session_state.get("data_source", "inconnu")
+    data_freq = st.session_state.get("data_freq", "D")
+    is_random = st.session_state.get("is_random", False)
+    lambda_panne = st.session_state.get("lambda_panne", 0.0001)
     temperature = st.session_state.get("temperature", 20.0)
     vent = st.session_state.get("wind", 10.0)
-    lambda_panne = st.session_state.get("lambda_panne", 0.0001)
-    dates = pd.date_range(end=datetime.today(), periods=len(consommations), freq='D')
-    df = pd.DataFrame({"date": dates, "consommation": consommations, "temp": temperature, "vent": vent})
-    df.set_index("date", inplace=True)
-    st.subheader("📊 Votre consommation électrique récente")
-    st.line_chart(df["consommation"])
-    moyenne = df["consommation"].mean()
-    derniere = df["consommation"].iloc[-1]
-    if derniere > moyenne * 1.1:
-        tendance = "🔺 **en hausse** : vous consommez plus que d'habitude."
-    elif derniere < moyenne * 0.9:
-        tendance = "🔻 **en baisse** : vous consommez moins que d'habitude."
+
+    if len(consommations) < 5:
+        st.warning("⚠️ Pas assez de données (minimum 5 valeurs). Utilisez la page 'Données'.")
+        st.stop()
+
+    n = len(consommations)
+
+    # ---------- Informations ----------
+    st.subheader("📌 Informations sur vos données")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.write(f"**Source :** {data_source.replace('_', ' ').title()}")
+        st.write(f"**Nombre de valeurs :** {n}")
+    with col_info2:
+        st.write(f"**Fréquence :** {data_freq}")
+        st.write(f"**Aléatoire :** {'Oui' if is_random else 'Non'}")
+
+    # ---------- Choix du modèle ----------
+    use_lstm = False
+    if data_source == "smart_meter_sim" and data_freq == "D" and n >= 90:
+        st.info("🤖 Données quotidiennes longues (≥ 90 jours). Utilisation du modèle **LSTM**.")
+        use_lstm = True
+        periodes = st.slider("Nombre de jours à prévoir", 1, 30, 7)
+        lookback = st.slider("Fenêtre d'historique (jours)", 7, 30, 14)
     else:
-        tendance = "➡️ **stable** : votre consommation est dans la normale."
-    st.info(f"📌 Tendance actuelle : {tendance}")
-    st.subheader("🔮 Prévision de votre consommation pour les prochains jours")
-    jours = st.slider("Nombre de jours à prévoir", 3, 14, 7)
+        st.info("📈 Utilisation du modèle **ARIMA** (prévision simple).")
+        periodes = st.slider("Nombre de périodes à prévoir", 1, 14, 7)
+
+    # ---------- Préparation DataFrame ----------
+    dates = pd.date_range(end=datetime.today(), periods=n, freq='D')
+    df = pd.DataFrame({"date": dates, "consommation": consommations})
+    df.set_index("date", inplace=True)
+
+    # ---------- Exécution ----------
+    st.subheader("🔮 Prévision de la consommation")
     try:
-        model = ARIMA(df["consommation"], order=(1,1,1))
-        model_fit = model.fit()
-        prevision = model_fit.forecast(steps=jours)
-        dates_futur = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=jours, freq='D')
-        df_prev = pd.DataFrame({"Date": dates_futur.strftime("%d/%m/%Y"), "Consommation prévue (kWh)": prevision.round(1)})
+        if use_lstm:
+            forecast = predict_lstm(pd.Series(consommations), steps=periodes, lookback=lookback)
+            if forecast is None:
+                st.warning("⚠️ LSTM non disponible (TensorFlow manquant). Utilisation d'ARIMA.")
+                use_lstm = False
+        if not use_lstm:
+            forecast = predict_arima(pd.Series(consommations), steps=periodes)
+
+        future_dates = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=periodes, freq='D')
+        df_prev = pd.DataFrame({
+            "Date": future_dates.strftime("%d/%m/%Y"),
+            "Consommation prévue (kWh)": np.round(forecast, 1)
+        })
         st.table(df_prev)
+
         fig, ax = plt.subplots()
         ax.plot(df.index, df["consommation"], label="Historique", color='blue')
-        ax.plot(dates_futur, prevision, label="Prévision", color='red', marker='o')
-        ax.set_title("Évolution de la consommation (réelle et prévue)")
+        ax.plot(future_dates, forecast, label="Prévision", color='red', marker='o')
+        ax.set_title("Évolution de la consommation")
         ax.legend()
         st.pyplot(fig)
-        variation = (prevision.iloc[-1] - df["consommation"].iloc[-1]) / df["consommation"].iloc[-1] * 100
+
+        variation = (forecast[-1] - df["consommation"].iloc[-1]) / df["consommation"].iloc[-1] * 100
         if variation > 10:
-            st.warning(f"⚠️ Votre consommation devrait **augmenter de {variation:.1f}%** dans les {jours} jours.")
+            st.warning(f"⚠️ Augmentation de {variation:.1f}% attendue.")
         elif variation < -10:
-            st.success(f"✅ Bonne nouvelle : votre consommation devrait **baisser de {abs(variation):.1f}%**.")
+            st.success(f"✅ Baisse de {abs(variation):.1f}% attendue.")
         else:
-            st.info(f"📉 La consommation restera **stable** (variation de {variation:.1f}%).")
+            st.info(f"📉 Variation stable ({variation:.1f}%).")
     except Exception as e:
-        st.error(f"Erreur lors de la prévision ARIMA : {e}")
+        st.error(f"Erreur : {e}")
+        st.stop()
+
+    # ---------- Risque de coupure (identique) ----------
     st.subheader("⚠️ Risque de coupure électrique dans les prochaines 24h")
-    if "historique_pannes" not in st.session_state:
+    if "historique_pannes_sim" in st.session_state:
+        df_pannes = st.session_state["historique_pannes_sim"]
+    else:
         dates_pannes = pd.date_range(start=datetime.today() - timedelta(days=60), periods=8, freq='7D')
-        st.session_state["historique_pannes"] = pd.DataFrame({"date": dates_pannes, "duree (min)": np.random.randint(10, 180, 8), "cause": np.random.choice(["Surcharge", "Tempête", "Équipement", "Foudre"], 8)})
-    df_pannes = st.session_state["historique_pannes"]
+        df_pannes = pd.DataFrame({
+            "date": dates_pannes,
+            "duree (min)": np.random.randint(10, 180, 8),
+            "cause": np.random.choice(["Surcharge", "Tempête", "Équipement", "Foudre"], 8)
+        })
     with st.expander("📋 Historique des dernières coupures"):
         st.dataframe(df_pannes.tail(5))
-    conso_actuelle = df["consommation"].iloc[-1]
-    seuil_charge = df["consommation"].mean() * 1.2
+
+    conso_actuelle = consommations[-1]
+    seuil_charge = np.mean(consommations) * 1.2
     charge_elevee = conso_actuelle > seuil_charge
     conditions_meteo_risque = (temperature > 35) or (vent > 45)
     pannes_recentes = df_pannes[df_pannes["date"] > datetime.today() - timedelta(days=30)]
     proba_hist = len(pannes_recentes) / 30 if len(pannes_recentes) > 0 else 0.03
+
     if charge_elevee and conditions_meteo_risque:
         proba_risque = min(proba_hist * 4, 0.95)
-        message = "🔴 **Risque très élevé** : forte consommation + conditions météo défavorables."
+        message = "🔴 Risque très élevé"
     elif charge_elevee or conditions_meteo_risque:
         proba_risque = min(proba_hist * 2, 0.70)
-        message = "🟠 **Risque modéré** : soit la charge est élevée, soit la météo est mauvaise."
+        message = "🟠 Risque modéré"
     else:
         proba_risque = proba_hist * 0.8
-        message = "🟢 **Risque faible** : situation normale."
+        message = "🟢 Risque faible"
+
     proba_lambda = 1 - np.exp(-lambda_panne * 24)
     proba_finale = 0.6 * proba_risque + 0.4 * proba_lambda
     proba_finale = min(proba_finale, 0.99)
     st.metric("📊 Probabilité de coupure dans les 24h", f"{proba_finale*100:.1f}%")
     st.info(message)
+
     st.subheader("💡 Que faire maintenant ?")
     if proba_finale > 0.6:
         st.error("**Actions recommandées :**\n- Réduisez immédiatement l'usage des appareils puissants.\n- Préparez un groupe électrogène.\n- Contactez votre fournisseur.")
