@@ -43,7 +43,7 @@ users_col = db["users"]
 entreprises_col = db["entreprises"]
 points_col = db["points"]
 subscriptions_col = db["subscriptions"]
-
+user_consommation_col=db["user_consommations"]
 # =========================================================
 # ADMIN FUNCTIONS
 # =========================================================
@@ -219,7 +219,89 @@ def use_points(user_id):
                 expiry = datetime.fromisoformat(expiry)
             if expiry and expiry > datetime.now():
                 return True
-        
+# =========================================================
+# FONCTIONS POUR ALERTES QUOTIDIENNES
+# =========================================================
+def calculer_risk_pour_utilisateur(user_id):
+    """Calcule le risque de coupure pour un utilisateur à partir de ses dernières données"""
+    # Récupérer les dernières données de consommation
+    last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
+    if not last_data:
+        return None
+    
+    consommations = last_data["consommations"]
+    lambda_panne = last_data["lambda_panne"]
+    temperature = last_data["temperature"]
+    wind = last_data["wind"]
+    
+    if len(consommations) < 5:
+        return None
+    
+    # Récupérer l'historique des pannes (collection à créer si besoin)
+    # Pour l'instant, on simule un DataFrame vide (pas de pannes)
+    df_pannes = pd.DataFrame(columns=["date", "duree (min)", "cause"])
+    
+    # Calcul du risque (copie du code de la page Prévision)
+    conso_actuelle = consommations[-1]
+    seuil_charge = np.mean(consommations) * 1.2
+    charge_elevee = conso_actuelle > seuil_charge
+    conditions_meteo_risque = (temperature > 35) or (wind > 45)
+    
+    # Historique des pannes (derniers 30 jours)
+    if len(df_pannes) > 0:
+        pannes_recentes = df_pannes[df_pannes["date"] > datetime.now() - timedelta(days=30)]
+        proba_hist = len(pannes_recentes) / 30
+    else:
+        proba_hist = 0.03
+    
+    if charge_elevee and conditions_meteo_risque:
+        proba_risque = min(proba_hist * 4, 0.95)
+    elif charge_elevee or conditions_meteo_risque:
+        proba_risque = min(proba_hist * 2, 0.70)
+    else:
+        proba_risque = proba_hist * 0.8
+    
+    proba_lambda = 1 - np.exp(-lambda_panne * 24)
+    risk = 0.6 * proba_risque + 0.4 * proba_lambda
+    risk_percent = min(risk, 0.99) * 100
+    return risk_percent 
+def envoyer_alerte_email(user_email, risk_pct, user_name=""):
+    """Envoie un email d'alerte si le risque dépasse 50%"""
+    sujet = f"⚡ Alerte PowerRisk : Risque de coupure élevé ({risk_pct:.0f}%)"
+    corps = f"""
+Bonjour {user_name if user_name else 'cher utilisateur'},
+
+Notre analyse quotidienne détecte un risque de coupure électrique de **{risk_pct:.1f}%** pour les prochaines 24 heures.
+
+Nous vous recommandons de :
+- Réduire les charges non essentielles
+- Vérifier l'état de vos équipements
+- Consulter la plateforme PowerRisk pour plus de détails
+
+Cordialement,
+L'équipe PowerRisk
+"""
+    send_email(user_email, sujet, corps, is_welcome=False)
+
+
+
+
+
+def verifier_tous_les_utilisateurs():
+    """Exécuté quotidiennement pour vérifier le risque de tous les utilisateurs"""
+    users = users_col.find()
+    for user in users:
+        user_id = user["_id"]
+        risk = calculer_risk_pour_utilisateur(user_id)
+        if risk is not None and risk > 50:
+            envoyer_alerte_email(user["email"], risk, user.get("nom_complet", ""))
+    return "Alertes envoyées aux utilisateurs concernés"
+
+
+
+
+
+    
         if get_points(user_id) < 5:
             return False
         
@@ -1654,3 +1736,15 @@ elif menu == "Admin" and is_admin_user(st.session_state.user_id):
                 st.success("Notification envoyée à tous les utilisateurs (simulation)")
             else:
                 st.warning("Veuillez entrer un message")
+# =========================================================
+# ENDPOINT POUR CRON-JOB (ALERTES QUOTIDIENNES)
+# =========================================================
+if "secret" in st.query_params and st.query_params["secret"][0] == "PowerRiskSecretKey2025":
+    result = verifier_tous_les_utilisateurs()
+    st.write(f"✅ {result}")
+    st.stop()
+
+
+
+
+
