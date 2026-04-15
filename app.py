@@ -699,7 +699,7 @@ elif menu == "Données":
         "🟡 BT - Factures (PDF)",
         "🔵 MT - Compteurs intelligents (CSV)",
         "🔌 Compteur intelligent (API)",
-        "📡 Arduino + Capteur"
+        "📡 Arduino + Capteur",
         "🔵 Compteur intelligent (données quotidiennes réalistes)"
     ])
     if data_mode == "🟢 Mode Simulation":
