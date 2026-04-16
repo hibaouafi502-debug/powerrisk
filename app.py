@@ -1006,7 +1006,7 @@ if st.session_state.user_id:
         df_futur['pannes_24h'] = 0
         features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
 
-        # 5. Entraînement du modèle Random Forest (données historiques simulées)
+                # 5. Entraînement du modèle Random Forest (données historiques simulées)
         np.random.seed(42)
         n_hist = 500
         now_hist = datetime.now()
@@ -1017,8 +1017,15 @@ if st.session_state.user_id:
         temp_hist = 20 + 10 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 3, n_hist)
         vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * t / 12)) + np.random.normal(0, 2, n_hist)
         voltage_hist = 220 + 5 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 2, n_hist)
+        # Règle de coupure réaliste : consommation > 300 ET voltage < 215, OU température > 35 ET vent > 25
         coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
         coupure_hist = coupure_hist.astype(int)
+        
+        # Vérifier que les deux classes (0 et 1) existent dans les données d'entraînement
+        if len(np.unique(coupure_hist)) < 2:
+            # Si une seule classe, forcer l'ajout d'au moins un 1
+            coupure_hist[0] = 1
+            print("Ajustement : ajout d'une coupure pour assurer deux classes")
 
         df_hist = pd.DataFrame({
             'date': dates_hist,
@@ -1036,13 +1043,24 @@ if st.session_state.user_id:
 
         X_train = df_hist[features]
         y_train = df_hist['coupure']
-        model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
-        model_rf.fit(X_train, y_train)
+        
+        # Vérifier à nouveau les classes après les opérations rolling
+        if len(np.unique(y_train)) < 2:
+            st.warning("⚠️ Les données historiques ne contiennent pas d'exemples de coupure. La prédiction sera basée sur une règle simple.")
+            use_fallback = True
+        else:
+            use_fallback = False
+            model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
+            model_rf.fit(X_train, y_train)
 
         # 6. Prédiction
         X_futur = df_futur[features].copy().fillna(0)
-        proba = model_rf.predict_proba(X_futur)[:, 1]
-
+        
+        if use_fallback:
+            # Modèle de remplacement simple : risque basé sur consommation > 300
+            proba = (df_futur['consommation'] > 300).astype(float)
+        else:
+            proba = model_rf.predict_proba(X_futur)[:, 1]
         df_result = pd.DataFrame({
             "Date": dates_futur,
             "Consommation prévue (kWh)": conso_future.round(1),
