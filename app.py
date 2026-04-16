@@ -45,7 +45,7 @@ subscriptions_col = db["subscriptions"]
 user_consommation_col = db["user_consommations"]
 
 # =========================================================
-# ADMIN FUNCTIONS
+# FONCTIONS ADMIN
 # =========================================================
 
 def init_admin():
@@ -70,7 +70,6 @@ def init_admin():
         users_col.update_one({"email": admin_email}, {"$set": {"is_admin": 1}})
 
 def is_admin_user(user_id):
-    """Vérifie si l'utilisateur est administrateur"""
     try:
         if isinstance(user_id, str):
             user_id = ObjectId(user_id)
@@ -82,20 +81,17 @@ def is_admin_user(user_id):
 init_admin()
 
 # =========================================================
-# FONCTIONS D'AUTHENTIFICATION (MongoDB)
+# AUTHENTIFICATION
 # =========================================================
 
 def register_user(data):
     email = data["email"].lower().strip()
     if users_col.find_one({"email": email}):
         return "EMAIL_EXISTS"
-    
     user_count = users_col.count_documents({})
     is_admin = 1 if user_count == 0 else 0
-    
     hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
     code = str(random.randint(100000, 999999))
-    
     user = {
         "nom_complet": data["nom"],
         "email": email,
@@ -107,7 +103,6 @@ def register_user(data):
         "created_at": datetime.now()
     }
     user_id = users_col.insert_one(user).inserted_id
-    
     entreprise = {
         "user_id": user_id,
         "nom_entreprise": data["nom_entreprise"],
@@ -130,7 +125,6 @@ def register_user(data):
         "created_at": datetime.now()
     }
     entreprises_col.insert_one(entreprise)
-    
     points = {
         "user_id": user_id,
         "total_points": 20,
@@ -138,7 +132,6 @@ def register_user(data):
         "created_at": datetime.now()
     }
     points_col.insert_one(points)
-    
     from datetime import date
     subscription = {
         "user_id": user_id,
@@ -149,7 +142,6 @@ def register_user(data):
         "created_at": datetime.now()
     }
     subscriptions_col.insert_one(subscription)
-    
     send_email(email, "Bienvenue sur PowerRisk", code, is_welcome=True, user_name=data["nom"])
     return "SUCCESS"
 
@@ -244,38 +236,42 @@ def can_access_page(user_id):
         return False, 0
 
 # =========================================================
-# ALERTES QUOTIDIENNES
+# ALERTES AUTOMATIQUES
 # =========================================================
 def calculer_risk_pour_utilisateur(user_id):
-    last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
-    if not last_data:
+    try:
+        last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
+        if not last_data:
+            return None
+        consommations = last_data["consommations"]
+        lambda_panne = last_data["lambda_panne"]
+        temperature = last_data["temperature"]
+        wind = last_data["wind"]
+        if len(consommations) < 5:
+            return None
+        df_pannes = pd.DataFrame(columns=["date", "duree (min)", "cause"])
+        conso_actuelle = consommations[-1]
+        seuil_charge = np.mean(consommations) * 1.2
+        charge_elevee = conso_actuelle > seuil_charge
+        conditions_meteo_risque = (temperature > 35) or (wind > 45)
+        if len(df_pannes) > 0:
+            pannes_recentes = df_pannes[df_pannes["date"] > datetime.now() - timedelta(days=30)]
+            proba_hist = len(pannes_recentes) / 30
+        else:
+            proba_hist = 0.03
+        if charge_elevee and conditions_meteo_risque:
+            proba_risque = min(proba_hist * 4, 0.95)
+        elif charge_elevee or conditions_meteo_risque:
+            proba_risque = min(proba_hist * 2, 0.70)
+        else:
+            proba_risque = proba_hist * 0.8
+        proba_lambda = 1 - np.exp(-lambda_panne * 24)
+        risk = 0.6 * proba_risque + 0.4 * proba_lambda
+        risk_percent = min(risk, 0.99) * 100
+        return risk_percent
+    except Exception as e:
+        print(f"Erreur calculer_risk: {e}")
         return None
-    consommations = last_data["consommations"]
-    lambda_panne = last_data["lambda_panne"]
-    temperature = last_data["temperature"]
-    wind = last_data["wind"]
-    if len(consommations) < 5:
-        return None
-    df_pannes = pd.DataFrame(columns=["date", "duree (min)", "cause"])
-    conso_actuelle = consommations[-1]
-    seuil_charge = np.mean(consommations) * 1.2
-    charge_elevee = conso_actuelle > seuil_charge
-    conditions_meteo_risque = (temperature > 35) or (wind > 45)
-    if len(df_pannes) > 0:
-        pannes_recentes = df_pannes[df_pannes["date"] > datetime.now() - timedelta(days=30)]
-        proba_hist = len(pannes_recentes) / 30
-    else:
-        proba_hist = 0.03
-    if charge_elevee and conditions_meteo_risque:
-        proba_risque = min(proba_hist * 4, 0.95)
-    elif charge_elevee or conditions_meteo_risque:
-        proba_risque = min(proba_hist * 2, 0.70)
-    else:
-        proba_risque = proba_hist * 0.8
-    proba_lambda = 1 - np.exp(-lambda_panne * 24)
-    risk = 0.6 * proba_risque + 0.4 * proba_lambda
-    risk_percent = min(risk, 0.99) * 100
-    return risk_percent
 
 def envoyer_alerte_email(user_email, risk_pct, user_name=""):
     sujet = f"⚡ Alerte PowerRisk : Risque de coupure élevé ({risk_pct:.0f}%)"
@@ -295,13 +291,17 @@ L'équipe PowerRisk
     send_email(user_email, sujet, corps, is_welcome=False)
 
 def verifier_tous_les_utilisateurs():
-    users = users_col.find()
-    for user in users:
-        user_id = user["_id"]
-        risk = calculer_risk_pour_utilisateur(user_id)
-        if risk is not None and risk > 50:
-            envoyer_alerte_email(user["email"], risk, user.get("nom_complet", ""))
-    return "Alertes envoyées aux utilisateurs concernés"
+    try:
+        users = users_col.find()
+        for user in users:
+            user_id = user["_id"]
+            risk = calculer_risk_pour_utilisateur(user_id)
+            if risk is not None and risk > 50:
+                envoyer_alerte_email(user["email"], risk, user.get("nom_complet", ""))
+        return "Alertes envoyées aux utilisateurs concernés"
+    except Exception as e:
+        print(f"Erreur verifier_tous: {e}")
+        return "Erreur lors de l'envoi des alertes"
 
 # =========================================================
 # EMAIL
@@ -353,7 +353,7 @@ def extract_electricity_from_pdf(pdf_file):
         return None
 
 # =========================================================
-# WEATHER
+# MÉTÉO
 # =========================================================
 @st.cache_data
 def get_weather_forecast(lat, lon):
@@ -483,7 +483,6 @@ if st.session_state.user_id is None:
 
 # ================= APRÈS CONNEXION =================
 if st.session_state.user_id:
-    # Sidebar
     st.sidebar.image("Logo.jpg", width=120)
     st.sidebar.markdown("## ⚡ Power Risk")
     st.sidebar.markdown("Plateforme d'analyse avancée")
@@ -502,7 +501,6 @@ if st.session_state.user_id:
     points = get_points(st.session_state.user_id)
     st.sidebar.info(f"💰 Points disponibles: {points}")
 
-    # Style Glass
     st.markdown("""
     <style>
     body { background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); }
@@ -604,7 +602,7 @@ if st.session_state.user_id:
         st.info("💡 Vous pouvez également utiliser le **chatbot** dans la page 'Solutions'.")
         st.success("✅ PowerRisk – Plateforme claire, intuitive et professionnelle.")
 
-    # ========== PAGE DONNÉES ==========
+    # ========== PAGE DONNÉES (version simplifiée mais complète) ==========
     elif menu == "Données":
         st.title("📁 Gestion des Données Industrielles")
         st.subheader("🌤️ Conditions météo actuelles")
@@ -824,7 +822,7 @@ if st.session_state.user_id:
             if st.session_state.get("weather_loaded", False):
                 st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
 
-    # ========== PAGE ANALYSE ==========
+    # ========== PAGE ANALYSE (version courte mais fonctionnelle) ==========
     elif menu == "Analyse":
         st.title("📊 Analyse des Risques")
         if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
@@ -939,10 +937,11 @@ if st.session_state.user_id:
             - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
             """)
 
-    # ========== PAGE PRÉVISION (VERSION HYBRID PRO - FINALE) ==========
+    # ========== PAGE PRÉVISION (version finale avec Random Forest) ==========
     elif menu == "Prévision":
         st.title("⚡ Prévision intelligente des coupures électriques (heure par heure)")
 
+        # Vérification des points (admin exempté)
         if not is_admin_user(st.session_state.user_id):
             access, detail = can_access_page(st.session_state.user_id)
             if not access:
@@ -963,7 +962,7 @@ if st.session_state.user_id:
         from statsmodels.tsa.arima.model import ARIMA
         from sklearn.ensemble import RandomForestClassifier
 
-        # ================== 1️⃣ PRÉVISION CONSOMMATION (ARIMA) ==================
+        # 1. Prévision consommation (ARIMA)
         serie = pd.Series(consommations)
         try:
             model_arima = ARIMA(serie, order=(2,1,2))
@@ -975,7 +974,7 @@ if st.session_state.user_id:
         heures_a_prevoir = st.slider("Nombre d'heures à prévoir", 1, 48, 24)
         conso_future = model_arima_fit.forecast(steps=heures_a_prevoir)
 
-        # ================== 2️⃣ MÉTÉO (réaliste ou simulée) ==================
+        # 2. Météo (simulation réaliste)
         if st.session_state.get("weather_loaded", False) and st.session_state.get("temperature"):
             temp_actuelle = st.session_state.temperature
             vent_actuel = st.session_state.wind
@@ -986,7 +985,7 @@ if st.session_state.user_id:
             temp_future = 20 + 10 * np.sin(2 * np.pi * heures / 24) + np.random.normal(0, 2, heures_a_prevoir)
             vent_future = 10 + 5 * np.abs(np.sin(2 * np.pi * heures / 12)) + np.random.normal(0, 2, heures_a_prevoir)
 
-        # ================== 3️⃣ DATAFRAME FUTUR (sans pd.date_range) ==================
+        # 3. DataFrame futur (sans pd.date_range)
         now = datetime.now()
         dates_futur = [now + timedelta(hours=i) for i in range(heures_a_prevoir)]
         voltage_future = 220 + 5 * np.sin(2 * np.pi * np.arange(heures_a_prevoir) / 24) + np.random.normal(0, 2, heures_a_prevoir)
@@ -999,21 +998,21 @@ if st.session_state.user_id:
             'voltage': voltage_future
         })
 
-        # ================== 4️⃣ FEATURES ==================
+        # 4. Features
         df_futur['heure'] = [d.hour for d in dates_futur]
         df_futur['jour'] = [d.weekday() for d in dates_futur]
         df_futur['moyenne'] = df_futur['consommation'].rolling(5, min_periods=1).mean()
         df_futur['tendance'] = df_futur['consommation'] - df_futur['moyenne']
         df_futur['pannes_24h'] = 0
-
         features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
 
-        # ================== 5️⃣ ENTRAÎNEMENT (données historiques réalistes) ==================
+        # 5. Entraînement du modèle Random Forest (données historiques simulées)
         np.random.seed(42)
         n_hist = 500
         now_hist = datetime.now()
         dates_hist = [now_hist - timedelta(hours=i) for i in range(n_hist-1, -1, -1)]
         t = np.arange(n_hist)
+
         conso_hist = 200 + 80 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 15, n_hist)
         temp_hist = 20 + 10 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 3, n_hist)
         vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * t / 12)) + np.random.normal(0, 2, n_hist)
@@ -1037,12 +1036,11 @@ if st.session_state.user_id:
 
         X_train = df_hist[features]
         y_train = df_hist['coupure']
-
         model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
         model_rf.fit(X_train, y_train)
 
-        # ================== 6️⃣ PRÉDICTION ==================
-        X_futur = df_futur[features]
+        # 6. Prédiction
+        X_futur = df_futur[features].copy().fillna(0)
         proba = model_rf.predict_proba(X_futur)[:, 1]
 
         df_result = pd.DataFrame({
@@ -1054,7 +1052,6 @@ if st.session_state.user_id:
         st.subheader("📊 Prévisions pour les prochaines heures")
         st.dataframe(df_result, use_container_width=True)
 
-        # ================== 7️⃣ HEURES CRITIQUES ==================
         seuil_alerte = st.slider("Seuil d'alerte (%)", 50, 95, 70)
         heures_critiques = df_result[df_result["Risque de coupure (%)"] > seuil_alerte]
 
@@ -1065,7 +1062,6 @@ if st.session_state.user_id:
         else:
             st.success(f"✅ Aucune coupure prévue (risque ≤ {seuil_alerte}%)")
 
-        # ================== 8️⃣ GRAPHIQUE ==================
         fig, ax = plt.subplots()
         ax.plot(dates_futur, df_result["Risque de coupure (%)"], marker='o', color='orange')
         ax.axhline(y=seuil_alerte, color='red', linestyle='--', label=f'Seuil {seuil_alerte}%')
@@ -1076,7 +1072,6 @@ if st.session_state.user_id:
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-        # ================== 9️⃣ EXPLICATION ==================
         st.subheader("💡 Interprétation et recommandations")
         if proba.max() > seuil_alerte / 100:
             st.warning("⚠️ **Risque élevé détecté** : réduisez les charges non essentielles, préparez un groupe électrogène.")
@@ -1093,7 +1088,7 @@ if st.session_state.user_id:
             ax_imp.set_title("Variables les plus influentes")
             st.pyplot(fig_imp)
 
-    # ========== PAGE RAPPORT ==========
+    # ========== PAGE RAPPORT (inchangée, fonctionnelle) ==========
     elif menu == "Rapport":
         st.title("📄 Rapport Intelligent - Analyse des Risques")
         if not is_admin_user(st.session_state.user_id):
