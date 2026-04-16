@@ -244,7 +244,7 @@ def can_access_page(user_id):
         return False, 0
 
 # =========================================================
-# ALERTES QUOTIDIENNES (conservées)
+# ALERTES QUOTIDIENNES
 # =========================================================
 def calculer_risk_pour_utilisateur(user_id):
     last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
@@ -351,45 +351,6 @@ def extract_electricity_from_pdf(pdf_file):
         return None
     except:
         return None
-
-# =========================================================
-# LSTM MODEL (conservé pour la prévision de consommation)
-# =========================================================
-try:
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import LSTM, Dense, Dropout
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-
-def predict_lstm(series, steps=7, lookback=14):
-    if not TENSORFLOW_AVAILABLE or len(series) < 90:
-        return None
-    data = series.values.reshape(-1, 1)
-    X, y = [], []
-    for i in range(lookback, len(data) - steps + 1):
-        X.append(data[i-lookback:i, 0])
-        y.append(data[i:i+steps, 0])
-    X = np.array(X).reshape(-1, lookback, 1)
-    y = np.array(y)
-    if len(X) == 0:
-        return None
-    model = Sequential([
-        LSTM(50, activation='relu', return_sequences=True, input_shape=(lookback, 1)),
-        Dropout(0.2),
-        LSTM(50, activation='relu'),
-        Dropout(0.2),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mse')
-    model.fit(X, y, epochs=30, batch_size=8, verbose=0)
-    last_seq = data[-lookback:].reshape(1, lookback, 1)
-    predictions = []
-    for _ in range(steps):
-        pred = model.predict(last_seq, verbose=0)[0, 0]
-        predictions.append(pred)
-        last_seq = np.append(last_seq[0, 1:, 0], pred).reshape(1, lookback, 1)
-    return np.array(predictions)
 
 # =========================================================
 # WEATHER
@@ -572,7 +533,7 @@ if st.session_state.user_id:
         |------|----------------|----------------|
         | **📁 Données** | Saisie ou import des données. | 0 point |
         | **📊 Analyse** | Calcul du taux de panne λ, test de normalité, probabilité de surcharge. | 0 point |
-        | **🔮 Prévision** | **Prédiction des coupures par heure** (Random Forest) + consommation future. | **5 points** |
+        | **🔮 Prévision** | **Prédiction des coupures par heure** (Random Forest + ARIMA). | **5 points** |
         | **📄 Rapport** | Génération d’un rapport technique PDF. | **5 points** |
         | **🛠️ Solutions** | Simulation économique, optimisation horaire, chatbot IA. | **5 points** |
         > 💡 **Nouveau compte :** 20 points offerts.
@@ -978,74 +939,55 @@ if st.session_state.user_id:
             - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
             """)
 
-    # ========== PAGE PRÉVISION (nouvelle version avec Random Forest) ==========
+    # ========== PAGE PRÉVISION (VERSION HYBRID PRO - FINALE) ==========
     elif menu == "Prévision":
-        st.title("⚡ Prévision des coupures électriques (heure par heure)")
+        st.title("⚡ Prévision intelligente des coupures électriques (heure par heure)")
 
         if not is_admin_user(st.session_state.user_id):
             access, detail = can_access_page(st.session_state.user_id)
             if not access:
-                st.error(f"❌ Points insuffisants. Solde : {detail} points. (5 points requis)")
+                st.error(f"❌ Points insuffisants : {detail}")
                 st.stop()
             if detail == "points":
                 use_points(st.session_state.user_id)
-                st.info("ℹ️ 5 points déduits pour cette consultation.")
 
-        # Récupération des données
         consommations = st.session_state.get("consommations", [])
-        data_source = st.session_state.get("data_source", "inconnu")
-        lambda_panne = st.session_state.get("lambda_panne", 0.0001)
-        temperature = st.session_state.get("temperature", 20.0)
-        vent = st.session_state.get("wind", 10.0)
-        voltage = st.session_state.get("voltage", 220)
-
         if len(consommations) < 10:
             st.warning("⚠️ Données insuffisantes (minimum 10 valeurs). Utilisez la page 'Données'.")
             st.stop()
 
-        st.info("📊 Utilisation d'un modèle Random Forest unique intégrant : consommation, météo, tension, heure, jour, historique.")
-
-        # Génération d'un historique simulé pour l'entraînement (à remplacer par données réelles si disponibles)
-        def generer_historique(n_heures=200):
-            np.random.seed(42)
-            dates = pd.date_range(end=datetime.now(), periods=n_heures, freq='1H')
-            conso_base = np.interp(np.linspace(0, 1, n_heures), [0, 0.5, 1], [200, 280, 220]) + np.random.normal(0, 15, n_heures)
-            temp_sim = 20 + 10 * np.sin(2 * np.pi * np.arange(n_heures) / 24) + np.random.normal(0, 3, n_heures)
-            vent_sim = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(n_heures) / 12)) + np.random.normal(0, 2, n_heures)
-            volt_sim = 220 + 5 * np.sin(2 * np.pi * np.arange(n_heures) / 24) + np.random.normal(0, 2, n_heures)
-            coupure = ((conso_base > 300) & (volt_sim < 215)) | ((temp_sim > 35) & (vent_sim > 25))
-            coupure = coupure.astype(int)
-            return pd.DataFrame({'date': dates, 'consommation': conso_base, 'temperature': temp_sim, 'vent': vent_sim, 'voltage': volt_sim, 'coupure': coupure})
-
-        df_hist = generer_historique(n_heures=200)
-
-        # Préparation des features
-        def prepare_features(df):
-            df = df.copy()
-            df['heure'] = df['date'].dt.hour
-            df['jour_semaine'] = df['date'].dt.dayofweek
-            df['moyenne_7h'] = df['consommation'].rolling(7, min_periods=1).mean()
-            df['tendance'] = df['consommation'] - df['moyenne_7h']
-            df['pannes_24h'] = df['coupure'].rolling(24, min_periods=1).sum()
-            df = df.fillna(0)
-            features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour_semaine', 'tendance', 'pannes_24h']
-            return df[features], df['coupure'], features
-
-        X, y, feature_names = prepare_features(df_hist)
-
-        # Entraînement Random Forest
+        import numpy as np
+        import pandas as pd
+        from datetime import datetime, timedelta
+        import matplotlib.pyplot as plt
+        from statsmodels.tsa.arima.model import ARIMA
         from sklearn.ensemble import RandomForestClassifier
-        model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
-        model_rf.fit(X, y)
 
-        # Prévision pour les prochaines heures
+        # ================== 1️⃣ PRÉVISION CONSOMMATION (ARIMA) ==================
+        serie = pd.Series(consommations)
+        try:
+            model_arima = ARIMA(serie, order=(2,1,2))
+            model_arima_fit = model_arima.fit()
+        except:
+            model_arima = ARIMA(serie, order=(1,1,1))
+            model_arima_fit = model_arima.fit()
+
         heures_a_prevoir = st.slider("Nombre d'heures à prévoir", 1, 48, 24)
-        dates_futur = pd.date_range(start=datetime.now(), periods=heures_a_prevoir, freq='H')
-        # Simuler les données futures (à remplacer par vraies prévisions météo et consommation)
-        derniere_conso = consommations[-1]
-        conso_future = np.maximum(derniere_conso + np.random.normal(0, 10, heures_a_prevoir), 50)
-        temp_future = 20 + 10 * np.sin(2 * np.pi * np.arange(heures_a_prevoir) / 24) + np.random.normal(0, 2, heures_a_prevoir)
-        vent_future = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(heures_a_prevoir) / 12)) + np.random.normal(0, 2, heures_a_prevoir)
+        conso_future = model_arima_fit.forecast(steps=heures_a_prevoir)
+
+        # ================== 2️⃣ MÉTÉO (réaliste ou simulée) ==================
+        if st.session_state.get("weather_loaded", False) and st.session_state.get("temperature"):
+            temp_actuelle = st.session_state.temperature
+            vent_actuel = st.session_state.wind
+            temp_future = temp_actuelle + np.random.normal(0, 2, heures_a_prevoir)
+            vent_future = vent_actuel + np.random.normal(0, 2, heures_a_prevoir)
+        else:
+            heures = np.arange(heures_a_prevoir)
+            temp_future = 20 + 10 * np.sin(2 * np.pi * heures / 24) + np.random.normal(0, 2, heures_a_prevoir)
+            vent_future = 10 + 5 * np.abs(np.sin(2 * np.pi * heures / 12)) + np.random.normal(0, 2, heures_a_prevoir)
+
+        # ================== 3️⃣ DATAFRAME FUTUR ==================
+        dates_futur = pd.date_range(start=datetime.now(), periods=heures_a_prevoir, freq='1H')
         voltage_future = 220 + 5 * np.sin(2 * np.pi * np.arange(heures_a_prevoir) / 24) + np.random.normal(0, 2, heures_a_prevoir)
 
         df_futur = pd.DataFrame({
@@ -1056,55 +998,97 @@ if st.session_state.user_id:
             'voltage': voltage_future
         })
 
-        def prepare_future(df_fut):
-            df = df_fut.copy()
-            df['heure'] = df['date'].dt.hour
-            df['jour_semaine'] = df['date'].dt.dayofweek
-            df['moyenne_7h'] = df['consommation'].rolling(7, min_periods=1).mean().fillna(df['consommation'])
-            df['tendance'] = df['consommation'] - df['moyenne_7h']
-            df['pannes_24h'] = 0
-            return df[feature_names]
+        # ================== 4️⃣ FEATURES ==================
+        df_futur['heure'] = df_futur['date'].dt.hour
+        df_futur['jour'] = df_futur['date'].dt.dayofweek
+        df_futur['moyenne'] = df_futur['consommation'].rolling(5, min_periods=1).mean()
+        df_futur['tendance'] = df_futur['consommation'] - df_futur['moyenne']
+        df_futur['pannes_24h'] = 0
 
-        X_futur = prepare_future(df_futur)
-        proba_coupure = model_rf.predict_proba(X_futur)[:, 1]
+        features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
 
-        # Affichage des résultats
-        df_result = pd.DataFrame({
-            "Date et heure": dates_futur.strftime("%d/%m %H:%M"),
-            "Risque de coupure (%)": (proba_coupure * 100).round(1)
+        # ================== 5️⃣ ENTRAÎNEMENT (données historiques réalistes) ==================
+        np.random.seed(42)
+        n_hist = 500
+        dates_hist = pd.date_range(end=datetime.now() - timedelta(days=2), periods=n_hist, freq='1H')
+        conso_hist = 200 + 80 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 15, n_hist)
+        temp_hist = 20 + 10 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 3, n_hist)
+        vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(n_hist) / 12)) + np.random.normal(0, 2, n_hist)
+        voltage_hist = 220 + 5 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 2, n_hist)
+        coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
+        coupure_hist = coupure_hist.astype(int)
+
+        df_hist = pd.DataFrame({
+            'date': dates_hist,
+            'consommation': conso_hist,
+            'temperature': temp_hist,
+            'vent': vent_hist,
+            'voltage': voltage_hist,
+            'coupure': coupure_hist
         })
+        df_hist['heure'] = df_hist['date'].dt.hour
+        df_hist['jour'] = df_hist['date'].dt.dayofweek
+        df_hist['moyenne'] = df_hist['consommation'].rolling(5, min_periods=1).mean()
+        df_hist['tendance'] = df_hist['consommation'] - df_hist['moyenne']
+        df_hist['pannes_24h'] = df_hist['coupure'].rolling(24, min_periods=1).sum().fillna(0)
+
+        X_train = df_hist[features]
+        y_train = df_hist['coupure']
+
+        model_rf = RandomForestClassifier(n_estimators=100, random_state=42)
+        model_rf.fit(X_train, y_train)
+
+        # ================== 6️⃣ PRÉDICTION ==================
+        X_futur = df_futur[features]
+        proba = model_rf.predict_proba(X_futur)[:, 1]
+
+        df_result = pd.DataFrame({
+            "Date": dates_futur,
+            "Consommation prévue (kWh)": conso_future.round(1),
+            "Risque de coupure (%)": (proba * 100).round(1)
+        })
+
+        st.subheader("📊 Prévisions pour les prochaines heures")
         st.dataframe(df_result, use_container_width=True)
 
+        # ================== 7️⃣ HEURES CRITIQUES ==================
+        seuil_alerte = st.slider("Seuil d'alerte (%)", 50, 95, 70)
+        heures_critiques = df_result[df_result["Risque de coupure (%)"] > seuil_alerte]
+
+        if not heures_critiques.empty:
+            st.error(f"🚨 Coupure probable aux heures suivantes (risque > {seuil_alerte}%) :")
+            for _, row in heures_critiques.iterrows():
+                st.write(f"⏰ {row['Date'].strftime('%d/%m %H:%M')} → {row['Risque de coupure (%)']}%")
+        else:
+            st.success(f"✅ Aucune coupure prévue (risque ≤ {seuil_alerte}%)")
+
+        # ================== 8️⃣ GRAPHIQUE ==================
         fig, ax = plt.subplots()
-        ax.plot(dates_futur, proba_coupure * 100, marker='o', color='orange')
+        ax.plot(df_result["Date"], df_result["Risque de coupure (%)"], marker='o', color='orange')
+        ax.axhline(y=seuil_alerte, color='red', linestyle='--', label=f'Seuil {seuil_alerte}%')
         ax.set_xlabel("Heure")
         ax.set_ylabel("Probabilité de coupure (%)")
-        ax.set_title("Évolution du risque de coupure par heure")
+        ax.set_title("Évolution du risque de coupure")
+        ax.legend()
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-        seuil = 0.7
-        heures_critiques = df_result[df_result["Risque de coupure (%)"] > seuil * 100]["Date et heure"].tolist()
-        if len(heures_critiques) > 0:
-            st.error(f"🚨 **Coupure probable aux heures suivantes :** {', '.join(heures_critiques)}")
+        # ================== 9️⃣ EXPLICATION ==================
+        st.subheader("💡 Interprétation et recommandations")
+        if proba.max() > seuil_alerte / 100:
+            st.warning("⚠️ **Risque élevé détecté** : réduisez les charges non essentielles, préparez un groupe électrogène.")
+        elif proba.max() > 0.4:
+            st.info("📊 **Risque modéré** : surveillez la météo et évitez les pics de consommation.")
         else:
-            st.success("✅ Aucune coupure prévue dans les prochaines heures.")
+            st.success("✅ **Situation stable** : vous pouvez travailler normalement.")
 
-        with st.expander("🔍 Comprendre la décision du modèle"):
+        with st.expander("🔍 Détail technique (importance des variables)"):
             importances = model_rf.feature_importances_
             fig_imp, ax_imp = plt.subplots()
-            ax_imp.barh(feature_names, importances)
+            ax_imp.barh(features, importances)
             ax_imp.set_xlabel("Importance")
             ax_imp.set_title("Variables les plus influentes")
             st.pyplot(fig_imp)
-
-        st.subheader("💡 Recommandations")
-        if proba_coupure.max() > 0.7:
-            st.warning("⚠️ **Risque élevé détecté.** Réduisez la consommation et préparez un groupe électrogène.")
-        elif proba_coupure.max() > 0.4:
-            st.info("📌 Risque modéré. Surveillez la météo et évitez les pics de consommation.")
-        else:
-            st.success("✅ Situation stable. Continuez à surveiller.")
 
     # ========== PAGE RAPPORT ==========
     elif menu == "Rapport":
