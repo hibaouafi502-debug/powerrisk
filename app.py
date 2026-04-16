@@ -236,72 +236,149 @@ def can_access_page(user_id):
         return False, 0
 
 # =========================================================
-# ALERTES AUTOMATIQUES
+# ALERTES HORAIRES AVEC RANDOM FOREST
 # =========================================================
-def calculer_risk_pour_utilisateur(user_id):
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from statsmodels.tsa.arima.model import ARIMA
+from sklearn.ensemble import RandomForestClassifier
+
+def generer_features_pour_prevision(consommations):
+    """Génère les features pour les prochaines 24h à partir des dernières consommations"""
+    n = len(consommations)
+    if n < 10:
+        return None, None
+    
+    # 1. Prévision consommation (ARIMA)
     try:
+        model_arima = ARIMA(consommations, order=(2,1,2))
+        model_fit = model_arima.fit()
+    except:
+        model_arima = ARIMA(consommations, order=(1,1,1))
+        model_fit = model_arima.fit()
+    
+    heures = 24
+    conso_future = model_fit.forecast(steps=heures)
+    
+    # 2. Simuler météo (à remplacer par API réelle si disponible)
+    # Pour la démo, on utilise un cycle journalier
+    temp_future = 20 + 10 * np.sin(2 * np.pi * np.arange(heures) / 24) + np.random.normal(0, 2, heures)
+    vent_future = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(heures) / 12)) + np.random.normal(0, 2, heures)
+    voltage_future = 220 + 5 * np.sin(2 * np.pi * np.arange(heures) / 24) + np.random.normal(0, 2, heures)
+    
+    # 3. Créer DataFrame futur
+    now = datetime.now()
+    dates_futur = [now + timedelta(hours=i) for i in range(heures)]
+    df_futur = pd.DataFrame({
+        'date': dates_futur,
+        'consommation': conso_future,
+        'temperature': temp_future,
+        'vent': vent_future,
+        'voltage': voltage_future
+    })
+    
+    # 4. Ajouter features
+    df_futur['heure'] = [d.hour for d in dates_futur]
+    df_futur['jour'] = [d.weekday() for d in dates_futur]
+    df_futur['moyenne'] = df_futur['consommation'].rolling(5, min_periods=1).mean()
+    df_futur['tendance'] = df_futur['consommation'] - df_futur['moyenne']
+    df_futur['pannes_24h'] = 0
+    features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
+    
+    return df_futur[features], dates_futur
+
+def entraîner_modele_rf():
+    """Entraîne un modèle Random Forest sur des données simulées (identique à celui de Prévision)"""
+    np.random.seed(42)
+    n_hist = 500
+    now = datetime.now()
+    dates_hist = [now - timedelta(hours=i) for i in range(n_hist-1, -1, -1)]
+    t = np.arange(n_hist)
+    
+    conso_hist = 200 + 80 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 15, n_hist)
+    temp_hist = 20 + 10 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 3, n_hist)
+    vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * t / 12)) + np.random.normal(0, 2, n_hist)
+    voltage_hist = 220 + 5 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 2, n_hist)
+    coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
+    coupure_hist = coupure_hist.astype(int)
+    
+    df_hist = pd.DataFrame({
+        'date': dates_hist,
+        'consommation': conso_hist,
+        'temperature': temp_hist,
+        'vent': vent_hist,
+        'voltage': voltage_hist,
+        'coupure': coupure_hist
+    })
+    df_hist['heure'] = [d.hour for d in dates_hist]
+    df_hist['jour'] = [d.weekday() for d in dates_hist]
+    df_hist['moyenne'] = df_hist['consommation'].rolling(5, min_periods=1).mean()
+    df_hist['tendance'] = df_hist['consommation'] - df_hist['moyenne']
+    df_hist['pannes_24h'] = df_hist['coupure'].rolling(24, min_periods=1).sum().fillna(0)
+    
+    features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
+    X = df_hist[features].fillna(0)
+    y = df_hist['coupure']
+    
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model, features
+
+def verifier_alertes_horaires():
+    """Vérifie toutes les heures pour chaque utilisateur et envoie email si risque > 50% dans une heure"""
+    # Entraîner le modèle (une fois)
+    model_rf, features = entraîner_modele_rf()
+    
+    users = users_col.find()
+    for user in users:
+        user_id = user["_id"]
+        # Récupérer les dernières consommations
         last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
         if not last_data:
-            return None
+            continue
         consommations = last_data["consommations"]
-        lambda_panne = last_data["lambda_panne"]
-        temperature = last_data["temperature"]
-        wind = last_data["wind"]
-        if len(consommations) < 5:
-            return None
-        df_pannes = pd.DataFrame(columns=["date", "duree (min)", "cause"])
-        conso_actuelle = consommations[-1]
-        seuil_charge = np.mean(consommations) * 1.2
-        charge_elevee = conso_actuelle > seuil_charge
-        conditions_meteo_risque = (temperature > 35) or (wind > 45)
-        if len(df_pannes) > 0:
-            pannes_recentes = df_pannes[df_pannes["date"] > datetime.now() - timedelta(days=30)]
-            proba_hist = len(pannes_recentes) / 30
-        else:
-            proba_hist = 0.03
-        if charge_elevee and conditions_meteo_risque:
-            proba_risque = min(proba_hist * 4, 0.95)
-        elif charge_elevee or conditions_meteo_risque:
-            proba_risque = min(proba_hist * 2, 0.70)
-        else:
-            proba_risque = proba_hist * 0.8
-        proba_lambda = 1 - np.exp(-lambda_panne * 24)
-        risk = 0.6 * proba_risque + 0.4 * proba_lambda
-        risk_percent = min(risk, 0.99) * 100
-        return risk_percent
-    except Exception as e:
-        print(f"Erreur calculer_risk: {e}")
-        return None
+        if len(consommations) < 10:
+            continue
+        
+        # Générer les features futures
+        X_futur, dates_futur = generer_features_pour_prevision(consommations)
+        if X_futur is None:
+            continue
+        
+        # Prédire les probabilités
+        X_futur = X_futur.fillna(0)
+        proba = model_rf.predict_proba(X_futur)[:, 1]
+        
+        # Trouver les heures avec risque > 50%
+        heures_risque = []
+        for i, p in enumerate(proba):
+            if p > 0.5:
+                heures_risque.append(dates_futur[i].strftime('%Y-%m-%d %H:%M'))
+        
+        if heures_risque:
+            sujet = f"⚡ Alerte PowerRisk : Risque de coupure élevé dans les prochaines heures"
+            corps = f"""
+Bonjour {user.get('nom_complet', 'cher utilisateur')},
 
-def envoyer_alerte_email(user_email, risk_pct, user_name=""):
-    sujet = f"⚡ Alerte PowerRisk : Risque de coupure élevé ({risk_pct:.0f}%)"
-    corps = f"""
-Bonjour {user_name if user_name else 'cher utilisateur'},
+Notre analyse détecte un risque de coupure électrique supérieur à 50% aux heures suivantes :
 
-Notre analyse quotidienne détecte un risque de coupure électrique de **{risk_pct:.1f}%** pour les prochaines 24 heures.
+{chr(10).join(f'- {h}' for h in heures_risque)}
 
 Nous vous recommandons de :
-- Réduire les charges non essentielles
-- Vérifier l'état de vos équipements
+- Réduire les charges non essentielles pendant ces créneaux
+- Préparer un groupe électrogène si nécessaire
 - Consulter la plateforme PowerRisk pour plus de détails
 
 Cordialement,
 L'équipe PowerRisk
 """
-    send_email(user_email, sujet, corps, is_welcome=False)
+            send_email(user["email"], sujet, corps, is_welcome=False)
+    
+    return "Alertes horaires envoyées"
 
-def verifier_tous_les_utilisateurs():
-    try:
-        users = users_col.find()
-        for user in users:
-            user_id = user["_id"]
-            risk = calculer_risk_pour_utilisateur(user_id)
-            if risk is not None and risk > 50:
-                envoyer_alerte_email(user["email"], risk, user.get("nom_complet", ""))
-        return "Alertes envoyées aux utilisateurs concernés"
-    except Exception as e:
-        print(f"Erreur verifier_tous: {e}")
-        return "Erreur lors de l'envoi des alertes"
+
+
 
 # =========================================================
 # EMAIL
@@ -1499,6 +1576,6 @@ if st.session_state.user_id:
 # ENDPOINT POUR CRON-JOB (ALERTES QUOTIDIENNES)
 # =========================================================
 if "secret" in st.query_params and st.query_params["secret"][0] == "PowerRiskSecretKey2025":
-    result = verifier_tous_les_utilisateurs()
+    result = verifier_alertes_horaires() # الجديد
     st.write(f"✅ {result}")
     st.stop()
