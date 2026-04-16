@@ -1,6 +1,3 @@
-# =========================================================
-# IMPORTS
-# =========================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,8 +11,7 @@ import smtplib
 import tempfile
 import os
 from statsmodels.tsa.arima.model import ARIMA
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from streamlit_js_eval import streamlit_js_eval
 from email.mime.text import MIMEText
@@ -43,7 +39,8 @@ users_col = db["users"]
 entreprises_col = db["entreprises"]
 points_col = db["points"]
 subscriptions_col = db["subscriptions"]
-user_consommation_col=db["user_consommations"]
+user_consommation_col = db["user_consommations"]
+
 # =========================================================
 # ADMIN FUNCTIONS
 # =========================================================
@@ -79,7 +76,6 @@ def is_admin_user(user_id):
     except:
         return False
 
-# Initialisation du compte admin
 init_admin()
 
 # =========================================================
@@ -91,7 +87,6 @@ def register_user(data):
     if users_col.find_one({"email": email}):
         return "EMAIL_EXISTS"
     
-    # Premier utilisateur devient admin
     user_count = users_col.count_documents({})
     is_admin = 1 if user_count == 0 else 0
     
@@ -210,8 +205,6 @@ def use_points(user_id):
     try:
         if isinstance(user_id, str):
             user_id = ObjectId(user_id)
-        
-        # Vérifier abonnement illimité
         sub = subscriptions_col.find_one({"user_id": user_id})
         if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
             expiry = sub.get("expiry_date")
@@ -219,54 +212,69 @@ def use_points(user_id):
                 expiry = datetime.fromisoformat(expiry)
             if expiry and expiry > datetime.now():
                 return True
+        if get_points(user_id) < 5:
+            return False
+        points_col.update_one({"user_id": user_id}, {"$inc": {"used_points": 5}})
+        return True
+    except Exception as e:
+        print(f"Erreur use_points: {e}")
+        return False
+
+def can_access_page(user_id):
+    try:
+        if isinstance(user_id, str):
+            user_id = ObjectId(user_id)
+        sub = subscriptions_col.find_one({"user_id": user_id})
+        if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
+            expiry = sub.get("expiry_date")
+            if expiry and isinstance(expiry, str):
+                expiry = datetime.fromisoformat(expiry)
+            if expiry and expiry > datetime.now():
+                return True, "unlimited"
+        points = get_points(user_id)
+        if points >= 5:
+            return True, "points"
+        else:
+            return False, points
+    except Exception as e:
+        print(f"Erreur can_access_page: {e}")
+        return False, 0
+
 # =========================================================
-# FONCTIONS POUR ALERTES QUOTIDIENNES
+# ALERTES QUOTIDIENNES
 # =========================================================
 def calculer_risk_pour_utilisateur(user_id):
-    """Calcule le risque de coupure pour un utilisateur à partir de ses dernières données"""
-    # Récupérer les dernières données de consommation
     last_data = user_consommation_col.find_one({"user_id": user_id}, sort=[("date", -1)])
     if not last_data:
         return None
-    
     consommations = last_data["consommations"]
     lambda_panne = last_data["lambda_panne"]
     temperature = last_data["temperature"]
     wind = last_data["wind"]
-    
     if len(consommations) < 5:
         return None
-    
-    # Récupérer l'historique des pannes (collection à créer si besoin)
-    # Pour l'instant, on simule un DataFrame vide (pas de pannes)
     df_pannes = pd.DataFrame(columns=["date", "duree (min)", "cause"])
-    
-    # Calcul du risque (copie du code de la page Prévision)
     conso_actuelle = consommations[-1]
     seuil_charge = np.mean(consommations) * 1.2
     charge_elevee = conso_actuelle > seuil_charge
     conditions_meteo_risque = (temperature > 35) or (wind > 45)
-    
-    # Historique des pannes (derniers 30 jours)
     if len(df_pannes) > 0:
         pannes_recentes = df_pannes[df_pannes["date"] > datetime.now() - timedelta(days=30)]
         proba_hist = len(pannes_recentes) / 30
     else:
         proba_hist = 0.03
-    
     if charge_elevee and conditions_meteo_risque:
         proba_risque = min(proba_hist * 4, 0.95)
     elif charge_elevee or conditions_meteo_risque:
         proba_risque = min(proba_hist * 2, 0.70)
     else:
         proba_risque = proba_hist * 0.8
-    
     proba_lambda = 1 - np.exp(-lambda_panne * 24)
     risk = 0.6 * proba_risque + 0.4 * proba_lambda
     risk_percent = min(risk, 0.99) * 100
-    return risk_percent 
+    return risk_percent
+
 def envoyer_alerte_email(user_email, risk_pct, user_name=""):
-    """Envoie un email d'alerte si le risque dépasse 50%"""
     sujet = f"⚡ Alerte PowerRisk : Risque de coupure élevé ({risk_pct:.0f}%)"
     corps = f"""
 Bonjour {user_name if user_name else 'cher utilisateur'},
@@ -283,12 +291,7 @@ L'équipe PowerRisk
 """
     send_email(user_email, sujet, corps, is_welcome=False)
 
-
-
-
-
 def verifier_tous_les_utilisateurs():
-    """Exécuté quotidiennement pour vérifier le risque de tous les utilisateurs"""
     users = users_col.find()
     for user in users:
         user_id = user["_id"]
@@ -296,45 +299,6 @@ def verifier_tous_les_utilisateurs():
         if risk is not None and risk > 50:
             envoyer_alerte_email(user["email"], risk, user.get("nom_complet", ""))
     return "Alertes envoyées aux utilisateurs concernés"
-
-
-
-
-
-    
-        if get_points(user_id) < 5:
-            return False
-        
-        points_col.update_one(
-            {"user_id": user_id},
-            {"$inc": {"used_points": 5}}
-        )
-        return True
-    except Exception as e:
-        print(f"Erreur use_points: {e}")
-        return False
-
-def can_access_page(user_id):
-    try:
-        if isinstance(user_id, str):
-            user_id = ObjectId(user_id)
-        
-        sub = subscriptions_col.find_one({"user_id": user_id})
-        if sub and sub.get("plan") in ["MONTHLY", "YEARLY"]:
-            expiry = sub.get("expiry_date")
-            if expiry and isinstance(expiry, str):
-                expiry = datetime.fromisoformat(expiry)
-            if expiry and expiry > datetime.now():
-                return True, "unlimited"
-        
-        points = get_points(user_id)
-        if points >= 5:
-            return True, "points"
-        else:
-            return False, points
-    except Exception as e:
-        print(f"Erreur can_access_page: {e}")
-        return False, 0
 
 # =========================================================
 # EMAIL
@@ -345,12 +309,7 @@ def send_email(receiver_email, subject, body, is_welcome=False, user_name=""):
     if is_welcome:
         welcome_msg = f"""
         Bonjour {user_name},
-        Bienvenue sur PowerRisk, la plateforme intelligente de gestion des risques électriques.
-        Avec PowerRisk, vous pourrez :
-        - Analyser vos consommations électriques
-        - Prévoir les coupures grâce à l'IA
-        - Recevoir des solutions personnalisées
-        - Gagner des points à chaque action
+        Bienvenue sur PowerRisk...
         Votre code de vérification est : {body}
         Cordialement, L'équipe PowerRisk
         """
@@ -391,52 +350,6 @@ def extract_electricity_from_pdf(pdf_file):
         return None
 
 # =========================================================
-# LSTM MODEL (pour compteur intelligent)
-# =========================================================
-try:
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import LSTM, Dense, Dropout
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-
-def predict_lstm(series, steps=7, lookback=14):
-    """Prédiction avec LSTM pour données quotidiennes (90+ jours)"""
-    if not TENSORFLOW_AVAILABLE or len(series) < 90:
-        return None # fallback vers ARIMA/SARIMA
-    
-    # Préparer les données
-    data = series.values.reshape(-1, 1)
-    X, y = [], []
-    for i in range(lookback, len(data) - steps + 1):
-        X.append(data[i-lookback:i, 0])
-        y.append(data[i:i+steps, 0])
-    X = np.array(X).reshape(-1, lookback, 1)
-    y = np.array(y)
-    
-    if len(X) == 0:
-        return None
-    
-    # Construire le modèle LSTM
-    model = Sequential([
-        LSTM(50, activation='relu', return_sequences=True, input_shape=(lookback, 1)),
-        Dropout(0.2),
-        LSTM(50, activation='relu'),
-        Dropout(0.2),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mse')
-    model.fit(X, y, epochs=30, batch_size=8, verbose=0)
-    
-    # Prédiction itérative
-    last_seq = data[-lookback:].reshape(1, lookback, 1)
-    predictions = []
-    for _ in range(steps):
-        pred = model.predict(last_seq, verbose=0)[0, 0]
-        predictions.append(pred)
-        last_seq = np.append(last_seq[0, 1:, 0], pred).reshape(1, lookback, 1)
-    return np.array(predictions)
-# =========================================================
 # WEATHER
 # =========================================================
 @st.cache_data
@@ -461,7 +374,7 @@ def get_weather_forecast(lat, lon):
 # =========================================================
 st.set_page_config(page_title="PowerRisk", layout="wide")
 st.image("Logo.jpg", width=150)
-st.title("Power Risk-Gestion des risques électriques")
+st.title("Power Risk - Gestion des risques électriques")
 
 # Initialisation session_state
 if "user_id" not in st.session_state:
@@ -572,14 +485,11 @@ if st.session_state.user_id:
     st.sidebar.markdown("## ⚡ Power Risk")
     st.sidebar.markdown("Plateforme d'analyse avancée")
     
-    # Vérifier si l'utilisateur est admin
     admin_mode = is_admin_user(st.session_state.user_id)
-    
     if admin_mode:
         menu_options = ["Accueil", "Données", "Analyse", "Prévision", "Rapport", "Solutions", "Admin"]
     else:
         menu_options = ["Accueil", "Données", "Analyse", "Prévision", "Rapport", "Solutions"]
-    
     menu = st.sidebar.radio("Navigation", menu_options)
     
     if st.sidebar.button("Se déconnecter"):
@@ -597,7 +507,6 @@ if st.session_state.user_id:
     .kpi-value { font-size: 35px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
-
 # ========== PAGE ACCUEIL ==========
 # ========== PAGE ACCUEIL ==========
 if menu == "Accueil":
