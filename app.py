@@ -986,8 +986,9 @@ if st.session_state.user_id:
             temp_future = 20 + 10 * np.sin(2 * np.pi * heures / 24) + np.random.normal(0, 2, heures_a_prevoir)
             vent_future = 10 + 5 * np.abs(np.sin(2 * np.pi * heures / 12)) + np.random.normal(0, 2, heures_a_prevoir)
 
-        # ================== 3️⃣ DATAFRAME FUTUR ==================
-        dates_futur = pd.date_range(start=datetime.now(), periods=heures_a_prevoir, freq='1H')
+        # ================== 3️⃣ DATAFRAME FUTUR (sans pd.date_range) ==================
+        now = datetime.now()
+        dates_futur = [now + timedelta(hours=i) for i in range(heures_a_prevoir)]
         voltage_future = 220 + 5 * np.sin(2 * np.pi * np.arange(heures_a_prevoir) / 24) + np.random.normal(0, 2, heures_a_prevoir)
 
         df_futur = pd.DataFrame({
@@ -999,8 +1000,8 @@ if st.session_state.user_id:
         })
 
         # ================== 4️⃣ FEATURES ==================
-        df_futur['heure'] = df_futur['date'].dt.hour
-        df_futur['jour'] = df_futur['date'].dt.dayofweek
+        df_futur['heure'] = [d.hour for d in dates_futur]
+        df_futur['jour'] = [d.weekday() for d in dates_futur]
         df_futur['moyenne'] = df_futur['consommation'].rolling(5, min_periods=1).mean()
         df_futur['tendance'] = df_futur['consommation'] - df_futur['moyenne']
         df_futur['pannes_24h'] = 0
@@ -1010,11 +1011,13 @@ if st.session_state.user_id:
         # ================== 5️⃣ ENTRAÎNEMENT (données historiques réalistes) ==================
         np.random.seed(42)
         n_hist = 500
-        dates_hist = pd.date_range(end=datetime.now() - timedelta(days=2), periods=n_hist, freq='1H')
-        conso_hist = 200 + 80 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 15, n_hist)
-        temp_hist = 20 + 10 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 3, n_hist)
-        vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(n_hist) / 12)) + np.random.normal(0, 2, n_hist)
-        voltage_hist = 220 + 5 * np.sin(2 * np.pi * np.arange(n_hist) / 24) + np.random.normal(0, 2, n_hist)
+        now_hist = datetime.now()
+        dates_hist = [now_hist - timedelta(hours=i) for i in range(n_hist-1, -1, -1)]
+        t = np.arange(n_hist)
+        conso_hist = 200 + 80 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 15, n_hist)
+        temp_hist = 20 + 10 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 3, n_hist)
+        vent_hist = 10 + 5 * np.abs(np.sin(2 * np.pi * t / 12)) + np.random.normal(0, 2, n_hist)
+        voltage_hist = 220 + 5 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 2, n_hist)
         coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
         coupure_hist = coupure_hist.astype(int)
 
@@ -1026,8 +1029,8 @@ if st.session_state.user_id:
             'voltage': voltage_hist,
             'coupure': coupure_hist
         })
-        df_hist['heure'] = df_hist['date'].dt.hour
-        df_hist['jour'] = df_hist['date'].dt.dayofweek
+        df_hist['heure'] = [d.hour for d in dates_hist]
+        df_hist['jour'] = [d.weekday() for d in dates_hist]
         df_hist['moyenne'] = df_hist['consommation'].rolling(5, min_periods=1).mean()
         df_hist['tendance'] = df_hist['consommation'] - df_hist['moyenne']
         df_hist['pannes_24h'] = df_hist['coupure'].rolling(24, min_periods=1).sum().fillna(0)
@@ -1064,7 +1067,7 @@ if st.session_state.user_id:
 
         # ================== 8️⃣ GRAPHIQUE ==================
         fig, ax = plt.subplots()
-        ax.plot(df_result["Date"], df_result["Risque de coupure (%)"], marker='o', color='orange')
+        ax.plot(dates_futur, df_result["Risque de coupure (%)"], marker='o', color='orange')
         ax.axhline(y=seuil_alerte, color='red', linestyle='--', label=f'Seuil {seuil_alerte}%')
         ax.set_xlabel("Heure")
         ax.set_ylabel("Probabilité de coupure (%)")
