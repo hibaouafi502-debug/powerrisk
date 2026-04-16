@@ -1008,7 +1008,7 @@ if st.session_state.user_id:
         # Génération d'un historique simulé pour l'entraînement (à remplacer par données réelles si disponibles)
         def generer_historique(n_heures=200):
             np.random.seed(42)
-            dates = pd.date_range(end=datetime.now(), periods=n_heures, freq='H')
+            dates = pd.date_range(end=datetime.now(), periods=n_heures, freq='1H')
             conso_base = np.interp(np.linspace(0, 1, n_heures), [0, 0.5, 1], [200, 280, 220]) + np.random.normal(0, 15, n_heures)
             temp_sim = 20 + 10 * np.sin(2 * np.pi * np.arange(n_heures) / 24) + np.random.normal(0, 3, n_heures)
             vent_sim = 10 + 5 * np.abs(np.sin(2 * np.pi * np.arange(n_heures) / 12)) + np.random.normal(0, 2, n_heures)
