@@ -283,6 +283,8 @@ def entrainer_modele_rf():
     voltage_hist = 220 + 5 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 2, n_hist)
     coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
     coupure_hist = coupure_hist.astype(int)
+    if len(np.unique(coupure_hist)) < 2:
+        coupure_hist[0] = 1
     df_hist = pd.DataFrame({
         'date': dates_hist,
         'consommation': conso_hist,
@@ -570,8 +572,8 @@ if st.session_state.user_id:
         | Page | Fonctionnalités | Coût en points |
         |------|----------------|----------------|
         | **📁 Données** | Saisie ou import des données. | 0 point |
-        | **📊 Analyse** | Analyse électrique avancée (profil, tension, corrélations). | 0 point |
-        | **🔮 Prévision** | **Prédiction des coupures par heure** (Random Forest + ARIMA). | **5 points** |
+        | **📊 Analyse** | Analyse électrique avancée + évaluation du risque. | 0 point |
+        | **🔮 Prévision** | Prédiction des coupures par heure (Random Forest + ARIMA). | **5 points** |
         | **📄 Rapport** | Génération d’un rapport technique PDF. | **5 points** |
         | **🛠️ Solutions** | Simulation économique, optimisation horaire, chatbot IA. | **5 points** |
         > 💡 **Nouveau compte :** 20 points offerts.
@@ -862,76 +864,73 @@ if st.session_state.user_id:
             if st.session_state.get("weather_loaded", False):
                 st.info(f"🌡️ Température actuelle: {st.session_state.temperature:.1f}°C | 💨 Vent: {st.session_state.wind:.1f} km/h")
 
-    # ========== PAGE ANALYSE (version électrotechnique avec mode Expert) ==========
+    # ========== PAGE ANALYSE (avec mode expert + calcul risque) ==========
     elif menu == "Analyse":
-        st.title("📊 Analyse électrique – données de consommation et réseau")
+        st.title("📊 Analyse électrique et évaluation des risques")
 
-        # Vérification des données
+        # ------------------ Vérification des données ------------------
         if "consommations" not in st.session_state or len(st.session_state["consommations"]) == 0:
             st.warning("⚠️ Aucune donnée de consommation. Veuillez d'abord charger des données dans la page 'Données'.")
             st.stop()
 
         consommations = st.session_state["consommations"]
         temp = st.session_state.get("temperature", 25.0)
+        vent = st.session_state.get("wind", 10.0)
         voltages = st.session_state.get("voltage", 220.0)
+        lambda_panne = st.session_state.get("lambda_panne", 0.0001)
 
         if isinstance(voltages, (int, float)):
             voltages_list = [voltages] * len(consommations)
         else:
             voltages_list = voltages if len(voltages) == len(consommations) else [np.mean(voltages)] * len(consommations)
 
-        # Section commune
-        st.header("📈 Analyse de la consommation électrique")
+        # ==================== 1. ANALYSE ÉLECTRIQUE AVANCÉE ====================
+        with st.expander("🔬 Mode expert – analyse électrotechnique détaillée", expanded=False):
+            st.markdown("## 🔬 Analyse approfondie du réseau électrique")
 
-        if len(consommations) >= 24:
-            profil = consommations[-24:]
-            heures = list(range(24))
-            conso_moyenne = np.mean(consommations)
-            conso_max = max(consommations)
-            load_factor = conso_moyenne / conso_max if conso_max > 0 else 0
+            if len(consommations) >= 24:
+                profil = consommations[-24:]
+                heures = list(range(24))
+                conso_moyenne = np.mean(consommations)
+                conso_max = max(consommations)
+                load_factor = conso_moyenne / conso_max if conso_max > 0 else 0
 
-            st.subheader("📊 Profil de charge journalier (dernières 24h)")
-            fig_profil, ax = plt.subplots()
-            ax.plot(heures, profil, marker='o', color='blue')
-            ax.set_xlabel("Heure")
-            ax.set_ylabel("Consommation (kWh)")
-            ax.set_title("Courbe de charge")
-            st.pyplot(fig_profil)
+                st.subheader("📊 Profil de charge journalier (dernières 24h)")
+                fig_profil, ax = plt.subplots()
+                ax.plot(heures, profil, marker='o', color='blue')
+                ax.set_xlabel("Heure")
+                ax.set_ylabel("Consommation (kWh)")
+                ax.set_title("Courbe de charge")
+                st.pyplot(fig_profil)
 
-            seuil_pointe = 1.2 * conso_moyenne
-            heures_pointe = [h for h, v in enumerate(profil) if v > seuil_pointe]
-            if heures_pointe:
-                st.warning(f"⏰ Heures de pointe détectées : {heures_pointe}")
+                seuil_pointe = 1.2 * conso_moyenne
+                heures_pointe = [h for h, v in enumerate(profil) if v > seuil_pointe]
+                if heures_pointe:
+                    st.warning(f"⏰ Heures de pointe détectées : {heures_pointe}")
+                else:
+                    st.success("✅ Aucune heure de pointe anormale.")
             else:
-                st.success("✅ Aucune heure de pointe anormale.")
+                conso_moyenne = np.mean(consommations)
+                conso_max = max(consommations)
+                load_factor = conso_moyenne / conso_max if conso_max > 0 else 0
+                st.info("📉 Pas assez de données pour tracer le profil journalier (24 valeurs requises).")
 
             st.metric("📈 Consommation moyenne", f"{conso_moyenne:.1f} kWh")
             st.metric("📊 Consommation maximale", f"{conso_max:.1f} kWh")
             st.metric("⚙️ Facteur de charge (Load Factor)", f"{load_factor:.3f}")
-        else:
-            st.info("📉 Pas assez de données pour tracer le profil journalier (24 valeurs requises).")
-            conso_moyenne = np.mean(consommations)
-            conso_max = max(consommations)
-            load_factor = conso_moyenne / conso_max if conso_max > 0 else 0
-            st.metric("📈 Consommation moyenne", f"{conso_moyenne:.1f} kWh")
-            st.metric("⚙️ Facteur de charge", f"{load_factor:.3f}")
 
-        dt = 1
-        energie_totale = sum(consommations) * dt
-        puissance_moyenne = energie_totale / len(consommations)
-        st.metric("🔋 Énergie totale consommée", f"{energie_totale:.1f} kWh")
-        st.metric("⚡ Puissance moyenne", f"{puissance_moyenne:.1f} kW")
-
-        # Mode expert
-        with st.expander("🔬 Mode expert – détails techniques pour électrotechniciens"):
-            st.markdown("## 🔬 Analyse approfondie du réseau électrique")
+            dt = 1
+            energie_totale = sum(consommations) * dt
+            puissance_moyenne = energie_totale / len(consommations)
+            st.metric("🔋 Énergie totale consommée", f"{energie_totale:.1f} kWh")
+            st.metric("⚡ Puissance moyenne", f"{puissance_moyenne:.1f} kW")
 
             st.subheader("🔌 Analyse de la tension")
             V_moy = np.mean(voltages_list)
             V_var = np.var(voltages_list, ddof=1) if len(voltages_list) > 1 else 0
             st.metric("Tension moyenne", f"{V_moy:.1f} V")
             st.metric("Variance de la tension", f"{V_var:.2f} V²")
-            st.caption(f"Formule : $\\bar{{V}} = \\frac{{1}}{{n}}\\sum V_i$ ; $\\mathrm{{Var}}(V) = \\frac{{1}}{{n}}\\sum (V_i - \\bar{{V}})^2$")
+            st.caption("Formule : V̄ = (1/n) Σ V_i ; Var(V) = (1/n) Σ (V_i - V̄)²")
 
             surtension = [v for v in voltages_list if v > 230]
             soustension = [v for v in voltages_list if v < 210]
@@ -956,7 +955,7 @@ if st.session_state.user_id:
             temps_simulees = temp + np.random.normal(0, 2, len(consommations))
             corr = np.corrcoef(consommations, temps_simulees)[0, 1]
             st.metric("Coefficient de Pearson (consommation / température)", f"{corr:.3f}")
-            st.caption(f"Formule : $r = \\frac{{\\sum (x_i - \\bar{x})(y_i - \\bar{y})}}{{\\sqrt{{\\sum (x_i - \\bar{x})^2 \\sum (y_i - \\bar{y})^2}}}}$")
+            st.caption("Formule : r = Cov(X,Y) / (σX σY)")
 
             fig_heat, ax_heat = plt.subplots()
             im = ax_heat.imshow([[1, corr], [corr, 1]], cmap='coolwarm', vmin=-1, vmax=1)
@@ -967,15 +966,14 @@ if st.session_state.user_id:
             st.pyplot(fig_heat)
 
             st.subheader("🚨 Détection d'anomalies de consommation")
-            conso_moy = np.mean(consommations)
             conso_std = np.std(consommations)
-            z_scores = [(c - conso_moy) / conso_std for c in consommations]
+            z_scores = [(c - conso_moyenne) / conso_std for c in consommations]
             anomalies = [c for c, z in zip(consommations, z_scores) if abs(z) > 2]
             if anomalies:
                 st.warning(f"⚠️ {len(anomalies)} consommation(s) anormale(s) (|z|>2) : {anomalies[:5]}")
             else:
                 st.success("✅ Aucune anomalie de consommation détectée.")
-            st.caption("Z-score : $z = \\frac{x - \\mu}{\\sigma}$")
+            st.caption("Z-score : z = (x - μ) / σ")
 
             if len(consommations) > 1:
                 diff = np.diff(consommations)
@@ -984,10 +982,112 @@ if st.session_state.user_id:
                     st.warning(f"⚠️ {len(variations_brutales)} variation(s) brutale(s) détectée(s).")
                 else:
                     st.success("✅ Pas de variation brutale.")
-            else:
-                st.info("Pas assez de données pour détecter les variations.")
 
-        # Visualisations supplémentaires
+        # ==================== 2. CALCUL DU RISQUE GLOBAL ====================
+        st.markdown("---")
+        st.subheader("📊 Évaluation du risque électrique (pour rapport et solutions)")
+
+        from scipy.stats import shapiro
+        if len(consommations) >= 3:
+            stat, p_value = shapiro(consommations)
+            st.write(f"**Test de normalité de Shapiro-Wilk** : p-value = {p_value:.4f}")
+            if p_value > 0.05:
+                st.success("✅ Les données suivent une loi normale.")
+                normal_assumption = True
+            else:
+                st.warning("⚠️ Les données ne suivent PAS une loi normale. Utilisation de Bienaymé-Tchebychev.")
+                normal_assumption = False
+        else:
+            st.warning("⚠️ Pas assez de données pour le test de normalité (minimum 3).")
+            normal_assumption = False
+
+        series = pd.Series(consommations)
+        mean_val = series.mean()
+        std_val = series.std() if series.std() != 0 else 1.0
+        seuil = mean_val + 1.5 * std_val
+
+        if normal_assumption:
+            predicted_value = series.iloc[-1]
+            P_A = 1 - norm.cdf(seuil, loc=predicted_value, scale=std_val)
+            ic_low = mean_val - 1.96 * std_val / np.sqrt(len(series))
+            ic_high = mean_val + 1.96 * std_val / np.sqrt(len(series))
+            st.info(f"📊 **Intervalle de confiance 95%** : [{ic_low:.1f}, {ic_high:.1f}] kWh")
+        else:
+            k = seuil / std_val if std_val > 0 else 1
+            P_A = 1 / (k**2) if k > 1 else 1.0
+            P_A = min(P_A, 1.0)
+            st.info("⚠️ Utilisation de l'inégalité de Bienaymé-Tchebychev")
+        P_A = float(max(0, min(P_A, 1)))
+        st.metric("⚡ Probabilité de surcharge", f"{P_A*100:.2f} %")
+
+        P_B = 1 - np.exp(-lambda_panne)
+        MTBF = 1 / lambda_panne
+        st.metric("🔧 Probabilité de panne (dans l'heure)", f"{P_B*100:.2f} %")
+        st.metric("⏱️ MTBF (Mean Time Between Failures)", f"{MTBF:.1f} heures")
+
+        if "weather_model" not in st.session_state:
+            X_train = np.array([[25,10], [30,20], [35,30], [40,40], [45,60], [42,70]])
+            y_train = np.array([0, 0, 1, 1, 1, 1])
+            model_weather = LogisticRegression()
+            model_weather.fit(X_train, y_train)
+            st.session_state["weather_model"] = model_weather
+        else:
+            model_weather = st.session_state["weather_model"]
+        proba_weather = model_weather.predict_proba([[temp, vent]])[0][1]
+        P_C = float(max(0, min(proba_weather, 1)))
+        st.metric("🌦️ Risque climatique", f"{P_C*100:.2f} %")
+
+        st.subheader("🎛️ Pondération personnalisable")
+        col_w1, col_w2, col_w3 = st.columns(3)
+        with col_w1:
+            w_A = st.slider("Poids surcharge", 0.0, 1.0, 0.4, 0.05)
+        with col_w2:
+            w_B = st.slider("Poids fiabilité", 0.0, 1.0, 0.3, 0.05)
+        with col_w3:
+            w_C = st.slider("Poids météo", 0.0, 1.0, 0.3, 0.05)
+        total = w_A + w_B + w_C
+        if total > 0:
+            w_A, w_B, w_C = w_A/total, w_B/total, w_C/total
+
+        Risk = w_A * P_A + w_B * P_B + w_C * P_C
+        Risk = float(max(0, min(Risk, 1)))
+        st.metric("🎯 **Indice de Risque Global**", f"{Risk*100:.2f} %")
+
+        if Risk < 0.4:
+            st.success("🟢 Niveau Faible – Aucune action immédiate")
+        elif Risk < 0.7:
+            st.warning("🟠 Niveau Moyen – Surveillance renforcée")
+        else:
+            st.error("🔴 Niveau Élevé – Intervention nécessaire")
+
+        st.session_state["risk_final"] = Risk * 100
+        st.session_state["P_A"] = P_A
+        st.session_state["P_B"] = P_B
+        st.session_state["P_C"] = P_C
+        st.session_state["lambda_used"] = lambda_panne
+
+        fig, ax = plt.subplots()
+        ax.bar(["Surcharge", "Fiabilité", "Météo"], [P_A, P_B, P_C], color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+        ax.set_ylabel("Probabilité")
+        ax.set_title("Comparaison des facteurs de risque")
+        ax.set_ylim(0, 1)
+        for i, v in enumerate([P_A, P_B, P_C]):
+            ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center')
+        st.pyplot(fig)
+
+        with st.expander("📐 Voir les détails mathématiques"):
+            st.markdown(r"""
+            **1. Probabilité de surcharge**  
+            - Hypothèse normale : $P_A = 1 - \Phi\left(\frac{S - \hat{x}_{t+1}}{\sigma}\right)$  
+            - Sinon : Inégalité de Bienaymé-Tchebychev $P(|X-\mu|\ge k\sigma) \le \frac{1}{k^2}$.
+            **2. Probabilité de panne (fiabilité)**  
+            - Loi exponentielle : $P_B = 1 - e^{-\lambda t}$ avec $t=1$ heure.
+            **3. Impact météo**  
+            - Régression logistique : $P_C = \frac{1}{1+e^{-(\beta_0 + \beta_1 T + \beta_2 V)}}$.
+            **4. Risque global**  
+            - $R = w_A P_A + w_B P_B + w_C P_C$, avec $w_i$ personnalisables.
+            """)
+
         st.header("📉 Visualisations supplémentaires")
         col_vis1, col_vis2 = st.columns(2)
         with col_vis1:
@@ -1062,7 +1162,6 @@ if st.session_state.user_id:
         df_futur['pannes_24h'] = 0
         features = ['consommation', 'temperature', 'vent', 'voltage', 'heure', 'jour', 'tendance', 'pannes_24h']
 
-        # Entraînement du modèle Random Forest
         np.random.seed(42)
         n_hist = 500
         now_hist = datetime.now()
@@ -1075,7 +1174,6 @@ if st.session_state.user_id:
         voltage_hist = 220 + 5 * np.sin(2 * np.pi * t / 24) + np.random.normal(0, 2, n_hist)
         coupure_hist = ((conso_hist > 300) & (voltage_hist < 215)) | ((temp_hist > 35) & (vent_hist > 25))
         coupure_hist = coupure_hist.astype(int)
-
         if len(np.unique(coupure_hist)) < 2:
             coupure_hist[0] = 1
 
