@@ -582,19 +582,19 @@ if st.session_state.user_id:
         """)
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("#### 📦 Pack de 20 points")
+            st.markdown("#### 📦 Pack de 10 points")
             st.write("500 DZD")
-            st.caption("+20 points (4 utilisations)")
+            st.caption("+10 points (2 utilisations)")
             if st.button("Acheter 20 points", key="buy_points"):
                 try:
-                    points_col.update_one({"user_id": ObjectId(st.session_state.user_id)}, {"$inc": {"total_points": 20}})
-                    st.success("✅ 20 points ajoutés !")
+                    points_col.update_one({"user_id": ObjectId(st.session_state.user_id)}, {"$inc": {"total_points": 10}})
+                    st.success("✅ 10 points ajoutés !")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erreur : {e}")
         with col2:
             st.markdown("#### 📅 Mensuel illimité")
-            st.write("1 000 DZD / mois")
+            st.write("1 500 DZD / mois")
             st.caption("Accès illimité")
             if st.button("S'abonner mensuel", key="subscribe_monthly"):
                 try:
@@ -605,8 +605,8 @@ if st.session_state.user_id:
                     st.error(f"Erreur : {e}")
         with col3:
             st.markdown("#### 📆 Annuel illimité")
-            st.write("6 000 DZD / an")
-            st.caption("Économie de 6 000 DZD")
+            st.write("10 000 DZD / an")
+            st.caption("Économie de 10 000 DZD")
             if st.button("S'abonner annuel", key="subscribe_yearly"):
                 try:
                     subscriptions_col.update_one({"user_id": ObjectId(st.session_state.user_id)}, {"$set": {"plan": "YEARLY", "expiry_date": datetime.now() + timedelta(days=365)}})
