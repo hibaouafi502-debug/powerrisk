@@ -642,8 +642,34 @@ if st.session_state.user_id:
             st.markdown("**+213 7XX XX XX XX**")
             st.caption("Du dimanche au jeudi, 9h - 17h")
         st.info("💡 Vous pouvez également utiliser le **chatbot** dans la page 'Solutions'.")
-        st.success("✅ PowerRisk – Plateforme claire, intuitive et professionnelle.")
+        st.markdown("---")
+        st.header("🛒 Achetez votre matériel électrique")
+        st.markdown("Découvrez nos partenaires pour l’achat de matériel électrique. Livraison disponible.")
+        fournisseurs = [
+            {"nom": "ÉlecTech Algérie", "wilaya": "Alger", "telephone": "0550 12 34 56", "livraison": "✅ Oui"},
+            {"nom": "PowerCare Solutions", "wilaya": "Oran", "telephone": "0551 23 45 67", "livraison": "✅ Oui"},
+            {"nom": "Maintenance Plus", "wilaya": "Constantine", "telephone": "0552 34 56 78", "livraison": "✅ Oui"},
+            {"nom": "Sécurité Élec", "wilaya": "Sétif", "telephone": "0553 45 67 89", "livraison": "✅ Oui"},
+            {"nom": "Énergie Service", "wilaya": "Annaba", "telephone": "0554 56 78 90", "livraison": "✅ Oui"},
+            {"nom": "Electro Plus", "wilaya": "Blida", "telephone": "0555 67 89 01", "livraison": "✅ Oui"},
+            {"nom": "Magasin ELEC", "wilaya": "Tizi Ouzou", "telephone": "0556 78 90 12", "livraison": "✅ Oui"},
+            {"nom": "Electro Centre", "wilaya": "Bejaïa", "telephone": "0557 89 01 23", "livraison": "✅ Oui"},
+            {"nom": "ELEC World", "wilaya": "Oran", "telephone": "0558 90 12 34", "livraison": "✅ Oui"},
+            {"nom": "Électro Mag", "wilaya": "Sétif", "telephone": "0559 01 23 45", "livraison": "✅ Oui"}
+        ]
 
+         with st.expander("📋 Voir tous les fournisseurs"):
+            for f in fournisseurs:
+                st.write(f"🏢 **{f['nom']}** – {f['wilaya']}")
+                st.write(f"📞 Téléphone : {f['telephone']} | 🚚 Livraison : {f['livraison']}")
+                st.markdown("---")
+        st.caption("⚠️ Ces sociétés sont présentées à titre d'exemple. Contactez-nous pour devenir partenaire vendeur.")
+        st.caption("💡 Contactez ces partenaires directement pour vos besoins. Devenir partenaire : écrivez à powerrisk22@gmail.com")
+
+
+
+
+        
     # ========== PAGE DONNÉES ==========
     elif menu == "Données":
         st.title("📁 Gestion des Données Industrielles")
