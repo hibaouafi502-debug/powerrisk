@@ -657,12 +657,11 @@ if st.session_state.user_id:
             {"nom": "ELEC World", "wilaya": "Oran", "telephone": "0558 90 12 34", "livraison": "✅ Oui"},
             {"nom": "Électro Mag", "wilaya": "Sétif", "telephone": "0559 01 23 45", "livraison": "✅ Oui"}
         ]
-
-         with st.expander("📋 Voir tous les fournisseurs"):
-            for f in fournisseurs:
-                st.write(f"🏢 **{f['nom']}** – {f['wilaya']}")
-                st.write(f"📞 Téléphone : {f['telephone']} | 🚚 Livraison : {f['livraison']}")
-                st.markdown("---")
+        with st.expander("📋 Voir tous les fournisseurs"):
+           for f in fournisseurs:
+              st.write(f"🏢 **{f['nom']}** – {f['wilaya']}")
+              st.write(f"📞 Téléphone : {f['telephone']} | 🚚 Livraison : {f['livraison']}")
+              st.markdown("---")
         st.caption("⚠️ Ces sociétés sont présentées à titre d'exemple. Contactez-nous pour devenir partenaire vendeur.")
         st.caption("💡 Contactez ces partenaires directement pour vos besoins. Devenir partenaire : écrivez à powerrisk22@gmail.com")
 
